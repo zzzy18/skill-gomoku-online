@@ -1,3 +1,4 @@
+const TEST_LOADOUT = ['shield','sand','stealth','double','crater','ink'];
 /** 验证铁索连环：1 费、可在灵力=1 时使用 */
 const { io } = require('socket.io-client');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -9,6 +10,7 @@ function mk() {
   s.on('syncState', m => st.push(m));
   return new Promise((res, rej) => {
     s.on('connect', () => { s.emit('joinRoom', room);
+    s.emit('setLoadout', TEST_LOADOUT);
       const w = () => st.length ? res({s, snap:()=>st[st.length-1], role:st[0].role}) : setTimeout(w,20); w(); });
     s.on('connect_error', e => rej(new Error(e.message)));
   });

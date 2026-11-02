@@ -11,7 +11,7 @@ if ! kill -0 $SRV 2>/dev/null; then
 fi
 
 FAIL=0
-for t in test-v2.js test-wind.js test-shield.js test-log-chat.js test-hardening.js test-stealth-expiry.js; do
+for t in test-v2.js test-wind.js test-shield.js test-log-chat.js test-hardening.js test-stealth-expiry.js test-loadout.js; do
   echo ""
   echo "════════ $t ════════"
   node tools/$t || FAIL=1

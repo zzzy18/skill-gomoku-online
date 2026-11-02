@@ -6,6 +6,9 @@
 
 'use strict';
 
+// 装备系统上线后，进房需先选技能才能落子
+const TEST_LOADOUT = ['shield','sand','stealth','double','crater','ink'];
+
 const { io } = require('socket.io-client');
 
 const PORT = Number(process.argv[2]) || 8080;
@@ -43,6 +46,7 @@ async function join(socket, roomId) {
     const t = setTimeout(() => reject(new Error('连接超时')), 7000);
     socket.on('connect', () => {
       socket.emit('joinRoom', roomId);
+      socket.emit('setLoadout', TEST_LOADOUT);
       const wait = () => {
         if (states.length) {
           clearTimeout(t);

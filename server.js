@@ -13,6 +13,44 @@ const SIZE = 15;
 const MAX_MP = 8;
 const rooms = new Map();
 
+/** 每人可装备的技能数量 */
+const LOADOUT_SIZE = 6;
+
+/**
+ * 技能定义表 —— 服务端权威。
+ *
+ * cost: 灵力消耗
+ * type: 'instant' 用完本回合仍可落子；'action' 代替本回合落子
+ *
+ * 前端也有一份同构的表用于渲染，但**校验只认这里**：
+ * 客户端传来 skill id 时必须先过 canUseSkill()，
+ * 否则改前端就能用未装备的技能。
+ */
+const SKILL_DEFS = {
+    shield:  { cost: 1, type: 'instant' },
+    sand:    { cost: 2, type: 'instant' },
+    crater:  { cost: 2, type: 'instant' },
+    flood:   { cost: 3, type: 'instant' },
+    mine:    { cost: 2, type: 'instant' },   // 草木皆兵
+    silence: { cost: 2, type: 'instant' },   // 釜底抽薪
+    ink:     { cost: 3, type: 'instant' },   // 墨染
+    stealth: { cost: 2, type: 'action' },
+    double:  { cost: 3, type: 'action' },
+    convert: { cost: 4, type: 'action' },
+    thunder: { cost: 5, type: 'action' },
+};
+
+/** 该角色能否使用这个技能（装备 + 灵力 + 沉默状态） */
+function canUseSkill(state, role, skillId) {
+    const def = SKILL_DEFS[skillId];
+    if (!def) return false;
+    const loadout = state.loadouts[role];
+    if (!Array.isArray(loadout) || !loadout.includes(skillId)) return false;
+    if (state.mp[role] < def.cost) return false;
+    if (state.silenced === role) return false;
+    return true;
+}
+
 /** 断线后座位保留时长：给刷新/闪断留恢复窗口 */
 const RESUME_GRACE_MS = 90 * 1000;
 /** 房间无活动多久后清理 */
@@ -65,8 +103,16 @@ function createInitialState() {
         firstDoubleMove: null,
         lastMove: null,
         gameOver: false,
-        expiredStealths: [], // 本轮到期显形的隐身子，播报后清空
-        statusText: '黑方回合：请落子或发动技能'
+        // picking：等玩家选技能；playing：对局中；over：已结束
+        phase: 'picking',
+        loadouts: { 1: null, 2: null },  // 各自装备的 6 个技能 id
+        ready: { 1: false, 2: false },
+        mines: [],        // { r, c, owner } 诡雷，敌方不可见
+        silenced: 0,      // 被沉默的角色，0 表示无
+        inks: [],         // { r, c, owner, turns } 墨染标记
+        expiredInks: [],  // 到期腐化的位置，广播时播报并清空
+        expiredStealths: [], // 到期显形的隐身子，播报后清空
+        statusText: '请选择 6 个技能装备，准备开局'
     };
 }
 
@@ -127,6 +173,8 @@ function getClientState(state, viewerRole) {
                 }
             }
         }
+        // 诡雷只有主人自己能看到（观战者保留全部，方便看局）
+        cloned.mines = (cloned.mines || []).filter((m) => m.owner === viewerRole);
     }
     return cloned;
 }
@@ -143,6 +191,15 @@ function broadcastRoom(roomId) {
                 `👁️ ${coordStr(pos.r, pos.c)} 的【🕵️暗度陈仓】隐形棋已到期显形（${who}）`);
         }
         room.state.expiredStealths = [];
+    }
+
+    // 墨染腐化播报
+    if (room.state.expiredInks && room.state.expiredInks.length) {
+        for (const pos of room.state.expiredInks) {
+            addRoomLog(room, 'win',
+                `☣️ ${coordStr(pos.r, pos.c)} 的棋子被【墨染】腐化，归属${pos.owner === 1 ? '⚫黑方' : '⚪白方'}！`);
+        }
+        room.state.expiredInks = [];
     }
 
     for (const [socketId, role] of Object.entries(room.players)) {
@@ -180,11 +237,44 @@ function nextTurn(state, gainMp = true) {
         }
     }
 
+    // 墨染计时：到期时若目标仍是敌子，腐化为施法者颜色
+    if (Array.isArray(state.inks) && state.inks.length) {
+        const keep = [];
+        for (const ink of state.inks) {
+            ink.turns--;
+            if (ink.turns > 0) {
+                keep.push(ink);
+                continue;
+            }
+            const victim = 3 - ink.owner;
+            if (state.board[ink.r][ink.c] === victim) {
+                state.board[ink.r][ink.c] = ink.owner;
+                state.expiredInks = state.expiredInks || [];
+                state.expiredInks.push({ r: ink.r, c: ink.c, owner: ink.owner });
+                if (checkWin(state.board, ink.r, ink.c, ink.owner)) {
+                    state.gameOver = true;
+                    state.statusText =
+                        `🎉 ${ink.owner === 1 ? '黑方' : '白方'}通过【墨染】腐化敌子，五子连珠获胜！`;
+                }
+            }
+            // 棋子已被清理/变色 → 墨染自然失效
+        }
+        state.inks = keep;
+    }
+
     state.currentPlayer = 3 - state.currentPlayer;
-    state.skillUsedThisTurn = false;
     state.doubleStep = 0;
     state.firstDoubleMove = null;
-    state.statusText = `${state.currentPlayer === 1 ? '黑方' : '白方'}回合：请落子或发动技能`;
+
+    // 沉默只作用于被沉默者的那一个回合；轮到别人时自动解除
+    if (state.silenced && state.silenced !== state.currentPlayer) state.silenced = 0;
+    state.skillUsedThisTurn = state.silenced === state.currentPlayer;
+
+    if (!state.gameOver) {
+        state.statusText = state.silenced === state.currentPlayer
+            ? `${state.currentPlayer === 1 ? '黑方' : '白方'}回合：被【釜底抽薪】沉默，本回合只能普通落子`
+            : `${state.currentPlayer === 1 ? '黑方' : '白方'}回合：请落子或发动技能`;
+    }
 }
 
 /** 按 token 查找座位（重连恢复用） */
@@ -219,6 +309,26 @@ function leaveCurrentRoom(socket) {
             (role === 1 ? '⚫黑方' : (role === 2 ? '⚪白方' : '👀观战玩家')) + ' 离开了房间');
         broadcastRoom(socket.roomId);
     }
+}
+
+/**
+ * 检查是否该开局：房间里所有在线玩家都选好技能了就开始。
+ * 单人也能开（对手随时可中途加入 ready），避免必须等齐人才动不了。
+ */
+function maybeStartMatch(room) {
+    const s = room.state;
+    if (s.phase !== 'picking') return false;
+
+    const seated = Object.values(room.players).filter((r) => r === 1 || r === 2);
+    if (seated.length === 0) return false;
+
+    const allReady = seated.every((r) => s.ready[r] && Array.isArray(s.loadouts[r]));
+    if (!allReady) return false;
+
+    s.phase = 'playing';
+    s.statusText = '黑方回合：请落子或发动技能';
+    addRoomLog(room, 'sys', '⚔️ 技能装备完成，对局开始！');
+    return true;
 }
 
 io.on('connection', (socket) => {
@@ -307,6 +417,43 @@ io.on('connection', (socket) => {
         broadcastRoom(rid);
     });
 
+    /**
+     * 选择技能装备。必须校验：数量、是否重复、id 是否合法。
+     * 校验不通过直接拒绝，不能信任客户端。
+     */
+    socket.on('setLoadout', (ids) => {
+        const room = rooms.get(socket.roomId);
+        if (!room) return;
+        const role = room.players[socket.id];
+        if (role !== 1 && role !== 2) return socket.emit('errMsg', '❌ 观战者不能选择技能');
+
+        const s = room.state;
+        if (s.gameOver) return socket.emit('errMsg', '❌ 对局已结束，请先重开');
+        // 已经装备过且对局进行中 → 不许中途换
+        // 但「对局已开始 + 自己还没装备」（后进房）要允许补选，
+        // 否则先 ready 的一方开局后，后到的人永远选不了技能。
+        if (s.phase === 'playing' && Array.isArray(s.loadouts[role])) {
+            return socket.emit('errMsg', '❌ 对局已开始，无法更换技能');
+        }
+
+        if (!Array.isArray(ids) || ids.length !== LOADOUT_SIZE) {
+            return socket.emit('errMsg', `❌ 请恰好选择 ${LOADOUT_SIZE} 个技能`);
+        }
+        const uniq = [...new Set(ids)];
+        if (uniq.length !== LOADOUT_SIZE) return socket.emit('errMsg', '❌ 技能不能重复');
+        const bad = uniq.find((id) => !SKILL_DEFS[id]);
+        if (bad) return socket.emit('errMsg', `❌ 未知技能：${bad}`);
+
+        s.loadouts[role] = uniq;
+        s.ready[role] = true;
+        touch(room);
+        addRoomLog(room, 'sys',
+            `${role === 1 ? '⚫黑方' : '⚪白方'} 已装备 ${LOADOUT_SIZE} 个技能`);
+
+        maybeStartMatch(room);
+        broadcastRoom(socket.roomId);
+    });
+
     socket.on('sendChat', (msg) => {
         touch(rooms.get(socket.roomId));
         const room = rooms.get(socket.roomId);
@@ -325,10 +472,39 @@ io.on('connection', (socket) => {
         if (!room) return;
         const role = room.players[socket.id];
         const who = role === 1 ? '⚫黑方' : (role === 2 ? '⚪白方' : '👀观战');
+
+        // 保留双方技能装备：连战不用每次重选。
+        // 想换装备可以重新进房，或点「重新选技能」。
+        const keepLoadouts = room.state.loadouts || { 1: null, 2: null };
+        const keepReady = room.state.ready || { 1: false, 2: false };
+
         room.state = createInitialState();
-        addRoomLog(room, 'sys', `🔄 ${who} 重置了棋局，新对局开始！`);
+        room.state.loadouts = keepLoadouts;
+        room.state.ready = keepReady;
+
+        addRoomLog(room, 'sys', `🔄 ${who} 重置了棋局`);
+        if (!maybeStartMatch(room)) {
+            room.state.statusText = '请选择技能装备，准备开局';
+        }
         broadcastRoom(socket.roomId);
         io.to(socket.roomId).emit('sound', 'skill');
+    });
+
+    /** 重新选技能（对局结束后想换装备） */
+    socket.on('resetLoadout', () => {
+        const room = rooms.get(socket.roomId);
+        if (!room) return;
+        const role = room.players[socket.id];
+        if (role !== 1 && role !== 2) return;
+
+        room.state.loadouts[role] = null;
+        room.state.ready[role] = false;
+        // 双方都退回选技能阶段
+        room.state.phase = 'picking';
+        room.state.statusText = '请重新选择 6 个技能装备';
+        addRoomLog(room, 'sys',
+            `${role === 1 ? '⚫黑方' : '⚪白方'} 请求重新选择技能`);
+        broadcastRoom(socket.roomId);
     });
 
     socket.on('activateDouble', () => {
@@ -336,7 +512,10 @@ io.on('connection', (socket) => {
         if (!room) return;
         const role = room.players[socket.id];
         const s = room.state;
-        if (s.gameOver || role !== s.currentPlayer || s.skillUsedThisTurn || s.doubleStep !== 0 || s.mp[role] < 3) return;
+        if (s.gameOver || role !== s.currentPlayer) return;
+        if (s.phase !== 'playing') return;
+        // 天涯海角走独立事件，同样要过装备/灵力/沉默校验
+        if (s.skillUsedThisTurn || s.doubleStep !== 0 || !canUseSkill(s, role, 'double')) return;
 
         s.mp[role] -= 3;
         s.skillUsedThisTurn = true;
@@ -354,7 +533,9 @@ io.on('connection', (socket) => {
         if (!room) return;
         const role = room.players[socket.id];
         const s = room.state;
+        if (!role) return; // 观战者不能操作
         if (s.gameOver || role !== s.currentPlayer) return;
+        if (s.phase !== 'playing') return socket.emit('errMsg', '⚠️ 请先选择技能装备，再开始对局');
         if (r < 0 || r >= SIZE || c < 0 || c >= SIZE) return;
 
         const enemy = 3 - role;
@@ -365,6 +546,14 @@ io.on('connection', (socket) => {
 
         // 1. 指向性技能处理
         if (skill && !s.skillUsedThisTurn && s.doubleStep === 0) {
+            // 服务端权威校验：装备过 / 灵力够 / 未被沉默。
+            // 不能只靠前端把按钮置灰，改前端就能绕过。
+            if (!canUseSkill(s, role, skill)) {
+                const why = s.silenced === role ? '你正处于【釜底抽薪】的沉默状态，本回合无法使用技能'
+                    : !(s.loadouts[role] || []).includes(skill) ? '该技能未装备'
+                    : '灵力不足';
+                return socket.emit('errMsg', '❌ ' + why);
+            }
             if (skill === 'sand' && s.mp[role] >= 2) {
                 if (s.board[r][c] !== enemy) return socket.emit('errMsg', '❌ 请选择敌方棋子！');
                 if (s.lastMove && s.lastMove.r === r && s.lastMove.c === c) return socket.emit('errMsg', '❌ 规则保护：不能吹走对方刚落下的棋子！');
@@ -506,6 +695,55 @@ io.on('connection', (socket) => {
                 io.to(socket.roomId).emit('sound', 'skill');
                 return broadcastRoom(socket.roomId);
             }
+            if (skill === 'mine' && s.mp[role] >= 2) {
+                if (s.board[r][c] !== 0 || isBlocked(s.craters, r, c)) {
+                    return socket.emit('errMsg', '❌ 请选择空位埋雷！');
+                }
+                if ((s.mines || []).some((m) => m.r === r && m.c === c)) {
+                    return socket.emit('errMsg', '❌ 这里已经埋了雷！');
+                }
+                s.mines.push({ r, c, owner: role });
+                s.mp[role] -= 2;
+                s.skillUsedThisTurn = true; // 瞬发：本回合仍可继续落子
+                s.statusText = `💣 ${pName}秘密埋下一颗诡雷！请继续落子`;
+                addRoomLog(room, 'skill', `${pTag} 秘密埋下一颗【💣草木皆兵】诡雷！（坐标保密）`);
+                io.to(socket.roomId).emit('sound', 'skill');
+                return broadcastRoom(socket.roomId);
+            }
+            if (skill === 'silence' && s.mp[role] >= 2) {
+                // 削减敌方 1 点灵力，并让敌方下一个回合无法使用技能
+                const before = s.mp[enemy];
+                s.mp[enemy] = Math.max(0, s.mp[enemy] - 1);
+                s.silenced = enemy;
+                s.mp[role] -= 2;
+                s.skillUsedThisTurn = true;
+                s.statusText = `⛓️ ${pName}发动【釜底抽薪】！${enemyName}下回合陷入沉默`;
+                addRoomLog(room, 'skill',
+                    `${pTag} 发动【⛓️釜底抽薪】，${enemyName}灵力 ${before} → ${s.mp[enemy]}，下回合陷入沉默！`);
+                io.to(socket.roomId).emit('sound', 'skill');
+                return broadcastRoom(socket.roomId);
+            }
+            if (skill === 'ink' && s.mp[role] >= 3) {
+                if (s.board[r][c] !== enemy) return socket.emit('errMsg', '❌ 请选择敌方棋子！');
+                if (absorbHit(s, r, c)) {
+                    addRoomLog(room, 'skill', `🛡️ ${pTag} 的【墨染】被 [${pos}] 的护盾挡下，护盾已消耗！`);
+                    s.statusText = '🛡️ 目标棋子的护盾挡下了墨染！护盾已消耗';
+                    io.to(socket.roomId).emit('sound', 'skill');
+                    return broadcastRoom(socket.roomId);
+                }
+                if ((s.inks || []).some((k) => k.r === r && k.c === c)) {
+                    return socket.emit('errMsg', '❌ 这枚棋子已经被墨染了！');
+                }
+                // 3 表示还要经过 3 次回合切换才腐化（约 1.5 个大回合）
+                s.inks.push({ r, c, owner: role, turns: 3 });
+                s.mp[role] -= 3;
+                s.skillUsedThisTurn = true;
+                s.statusText = `☣️ ${pName}对 [${pos}] 的棋子施加了墨染！请继续落子`;
+                addRoomLog(room, 'skill',
+                    `${pTag} 对 [${pos}] 的敌子施加【☣️墨染】，3 步内不清理就会腐化！`);
+                io.to(socket.roomId).emit('sound', 'skill');
+                return broadcastRoom(socket.roomId);
+            }
         }
 
         // 2. 踩中敌方隐身子判定
@@ -521,6 +759,29 @@ io.on('connection', (socket) => {
 
         if (s.board[r][c] !== 0 || isBlocked(s.craters, r, c)) {
             return socket.emit('errMsg', '❌ 该位置已有棋子、处于风眼或被路障封印！');
+        }
+
+        // 自己的雷占着位置，别让棋子压上去
+        if ((s.mines || []).some((m) => m.owner === role && m.r === r && m.c === c)) {
+            return socket.emit('errMsg', '❌ 这里埋着你的诡雷，换一个位置吧');
+        }
+
+        // 诡雷：敌方在雷自身或其周围 1 格落子都会引爆
+        const mineIdx = (s.mines || []).findIndex(
+            (m) => m.owner !== role && Math.max(Math.abs(m.r - r), Math.abs(m.c - c)) <= 1
+        );
+        if (mineIdx >= 0) {
+            s.mines.splice(mineIdx, 1); // 雷是一次性的
+            // 落点化作封印弹坑
+            s.craters.push({ r, c, duration: 2, type: 'crater' });
+            s.doubleStep = 0;
+            s.firstDoubleMove = null;
+            nextTurn(s, false); // 落子作废，且不回灵力
+            s.statusText = `💥 ${pName}踩中诡雷！落子被炸毁，[${pos}] 化为封印弹坑`;
+            addRoomLog(room, 'skill',
+                `💥 ${pTag} 落子 [${pos}] 触发【💣草木皆兵】诡雷！棋子被炸毁，原地封印 2 回合`);
+            io.to(socket.roomId).emit('sound', 'skill');
+            return broadcastRoom(socket.roomId);
         }
 
         // 3. 【天涯海角】第一子与第二子判定

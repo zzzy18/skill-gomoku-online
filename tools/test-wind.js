@@ -1,3 +1,4 @@
+const TEST_LOADOUT = ['shield','sand','stealth','double','crater','ink'];
 /**
  * 最小验证：只测 sand 的吹歪行为，不做复杂的攒灵力循环。
  * 思路：直接用两个客户端，各自轮流落子，每步都等状态更新。
@@ -12,6 +13,7 @@ function mk() {
   s.on('syncState', m => st.push(m));
   return new Promise(res => s.on('connect', () => {
     s.emit('joinRoom', room);
+    s.emit('setLoadout', TEST_LOADOUT);
     const w = () => st.length ? res({s, st, snap: () => st[st.length-1]}) : setTimeout(w, 20);
     w();
   }));

@@ -295,6 +295,67 @@
         }
 
         /* 浮动规则说明弹窗 */
+        /* ── 技能装备选择界面 ── */
+        .loadout-overlay {
+            position: fixed; inset: 0; z-index: 1200;
+            background: rgba(240, 246, 255, 0.92);
+            backdrop-filter: blur(6px);
+            display: none; align-items: center; justify-content: center;
+            padding: 16px;
+        }
+        .loadout-overlay.show { display: flex; }
+        .loadout-box {
+            width: 100%; max-width: 880px; max-height: 92vh;
+            background: #fff; border-radius: 16px; padding: 20px;
+            box-shadow: 0 18px 50px rgba(23, 63, 104, 0.25);
+            border: 2px solid rgba(52, 127, 240, 0.18);
+            display: flex; flex-direction: column;
+        }
+        .loadout-head { text-align: center; margin-bottom: 14px; }
+        .loadout-head h2 { font-size: 20px; color: var(--text-color); margin-bottom: 4px; }
+        .loadout-head p { font-size: 13px; color: #5b7ea6; }
+        .loadout-head strong { color: var(--gold); font-size: 15px; }
+
+        .loadout-grid {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+            overflow-y: auto; padding: 2px; margin-bottom: 14px; flex: 1;
+        }
+        .loadout-card {
+            position: relative; text-align: left; cursor: pointer;
+            background: #f7fbff; border: 2px solid #dbe8f8; border-radius: 10px;
+            padding: 10px 12px; transition: 0.15s; color: var(--text-color);
+            font-family: inherit;
+        }
+        .loadout-card:hover { border-color: #a9c9f2; background: #f0f7ff; }
+        .loadout-card.picked {
+            border-color: var(--gold); background: #eaf3ff;
+            box-shadow: 0 0 0 3px rgba(52, 127, 240, 0.15);
+        }
+        .loadout-card.picked::after {
+            content: '✓'; position: absolute; top: 6px; right: 8px;
+            color: var(--gold); font-weight: bold; font-size: 14px;
+        }
+        .loadout-card.full { opacity: 0.45; cursor: not-allowed; }
+        .loadout-name { font-weight: bold; font-size: 13px; margin-bottom: 4px; }
+        .loadout-cost { display: flex; gap: 2px; margin-bottom: 4px; }
+        .loadout-desc { font-size: 11px; color: #5b7ea6; line-height: 1.35; }
+
+        .loadout-foot {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 12px; padding-top: 12px; border-top: 1px solid #e3eefb;
+        }
+        .loadout-count { font-size: 14px; font-weight: bold; color: var(--text-color); }
+        .loadout-count span { color: var(--gold); }
+        .loadout-actions { display: flex; gap: 8px; }
+        .loadout-tip { font-size: 12px; color: #7b97b8; }
+
+        @media (max-width: 720px) {
+            .loadout-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+            .loadout-desc { font-size: 10px; }
+            .loadout-box { padding: 14px; }
+            .loadout-foot { flex-wrap: wrap; }
+        }
+
         .modal-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(10, 10, 18, 0.82); backdrop-filter: blur(4px);
@@ -449,6 +510,7 @@
             <div class="rule-section">
                 <h3>⚡ 一、灵力与先后手平衡</h3>
                 <ul>
+                    <li><strong>技能装备：</strong>开局前每人从全部技能中<strong>挑选 6 个</strong>装备，对局中使用范围仅限自己的这 6 个。重开时会沿用上次的装备。</li>
                     <li><strong>先后手平衡：</strong>黑方（先手）初始 <strong>1 点灵力</strong>；白方（后手）初始 <strong>2 点灵力</strong>作为后手补偿。灵力上限 <strong>8 点</strong>。</li>
                     <li><strong>灵力恢复：</strong>每名玩家<strong>回合正常结束时固定恢复 +1 ⚡</strong>（无论本回合是普通落子还是用了技能）。</li>
                     <li><strong>唯一不回能惩罚：</strong>若落子时<strong>踩中敌方【🕵️ 暗度陈仓】隐身棋子</strong>，本回合落子作废<strong>且不回灵力</strong>！</li>
@@ -463,6 +525,9 @@
                     <li><span class="rule-tag tag-free">2⚡</span><strong>🌪️ 飞沙走石：</strong>将敌方 1 枚无护盾棋子<strong>随机吹歪到周围 8 格空位</strong>（周围全满则吹散）。原位留下持续 1 大回合的<strong>青色旋风风眼</strong>，期间双方均不可在此落子。</li>
                     <li><span class="rule-tag tag-free">2⚡</span><strong>🧱 画地为牢：</strong>在空位放置<strong>红色封印路障</strong>，持续 2 大回合（共 4 步棋），期间双方均不可在此落子。</li>
                     <li><span class="rule-tag tag-free">3⚡</span><strong>🌊 水淹七军：</strong>将指定行上<strong>随机最多 2 枚无护盾棋子（不分敌我）冲走</strong>。</li>
+                    <li><span class="rule-tag tag-free">2⚡</span><strong>💣 草木皆兵：</strong>在空位<strong>秘密埋下诡雷</strong>（对手看不见）。敌方在雷<strong>自身或周围 1 格</strong>落子即引爆：这次落子作废，原地化为持续 2 回合的封印弹坑。雷是一次性的。</li>
+                    <li><span class="rule-tag tag-free">2⚡</span><strong>⛓️ 釜底抽薪：</strong>削减敌方 <strong>1 点灵力</strong>，并让敌方<strong>下一个回合陷入沉默</strong>——只能普通落子，一个技能都放不出来。</li>
+                    <li><span class="rule-tag tag-free">3⚡</span><strong>☣️ 墨染：</strong>给敌方 1 枚棋子染上墨毒，进入 <strong>3 步倒计时</strong>。到期时若这枚棋子还在原位，会<strong>腐化变成你的颜色</strong>；对手可以用技能把它清掉来化解。</li>
                 </ul>
             </div>
 
@@ -489,6 +554,27 @@
         </div>
     </section>
 </div>
+    <!-- 技能装备选择 -->
+    <div class="loadout-overlay" id="loadoutOverlay">
+        <div class="loadout-box">
+            <div class="loadout-head">
+                <h2 id="loadoutTitle">⚔️ 选择出战技能</h2>
+                <p id="loadoutSubtitle">从 11 个技能中挑选 <strong>6</strong> 个，开局后不可更改</p>
+            </div>
+            <div class="loadout-grid" id="loadoutGrid"></div>
+            <div class="loadout-foot">
+                <div>
+                    <div class="loadout-count">已选 <span id="loadoutCount">0</span> / 6</div>
+                    <div class="loadout-tip" id="loadoutTip">点击卡片选择或取消</div>
+                </div>
+                <div class="loadout-actions">
+                    <button class="ctrl-btn" id="loadoutRandom" onclick="pickRandomLoadout()">🎲 随机</button>
+                    <button class="ctrl-btn create-btn" id="loadoutConfirm" onclick="confirmLoadout()" disabled>确认出战</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
 <script>
 function toggleRules(show) {
     document.getElementById('ruleModal').classList.toggle('show', show);
@@ -590,14 +676,19 @@ const SKILLS = [
     { id: 'shield', name: '🛡️ 铁索连环', cost: 1, desc: '为己方1枚棋子套上护盾，可抵挡一次技能，可继续落子' },
     { id: 'sand', name: '🌪️ 飞沙走石', cost: 2, desc: '将敌子随机吹歪到周围空位，原地留风眼禁区1回合' },
     { id: 'crater', name: '🧱 画地为牢', cost: 2, desc: '封印1个空位2回合，可继续落子' },
+    { id: 'mine', name: '💣 草木皆兵', cost: 2, desc: '空位埋下隐形诡雷，敌子在周围1格内落子即引爆' },
+    { id: 'silence', name: '⛓️ 釜底抽薪', cost: 2, desc: '削敌方1点灵力，敌方下回合只能普通落子' },
     { id: 'stealth', name: '🕵️ 暗度陈仓', cost: 2, desc: '落下1枚隐身棋，3回合后自动显形，对方踩中则本回合作废' },
     { id: 'double', name: '⚡ 天涯海角', cost: 3, desc: '连落2子，两子距离需≥4格，且不可直接绝杀' },
     { id: 'flood', name: '🌊 水淹七军', cost: 3, desc: '冲散指定一整行的随机2枚无护盾棋子' },
+    { id: 'ink', name: '☣️ 墨染', cost: 3, desc: '标记敌方1枚棋子，3步内不清除将腐化为己方' },
     { id: 'convert', name: '☯️ 乾坤挪移', cost: 4, desc: '将敌方1枚无护盾棋子变己方并结束回合' },
     { id: 'thunder', name: '🌩️ 九天雷劫', cost: 5, desc: '炸毁3x3区域内所有无护盾棋子，直接结束' }
 ];
 
 const SIZE = 15, CELL = 36, PADDING = 18, MAX_MP = 8;
+// 每人装备的技能数量（与服务端一致）
+const LOADOUT_SIZE = 6;
 // 隐形棋存在的大回合数（与服务端一致）
 const STEALTH_TURNS = 3;
 const canvas = document.getElementById('chessBoard');
@@ -659,23 +750,182 @@ let board = [], shields = [], stealths = [], craters = [];
 let currentPlayer = 1, mp = { 1: 1, 2: 2 };
 let activeSkill = null, skillUsedThisTurn = false, doubleStep = 0, firstDoubleMove = null;
 let lastMove = null, gameOver = false;
+
+// ── 技能装备与新增机制的状态 ──
+let phase = 'picking';                 // picking | playing | over
+let loadouts = { 1: null, 2: null };    // 双方装备的技能 id 数组
+let readyState = { 1: false, 2: false };
+// 本地模式下两个玩家各自的装备（在线模式只用自己的）
+let localLoadouts = { 1: null, 2: null };
+let mines = [];                         // 诡雷（只含自己可见的）
+let silenced = 0;                       // 被沉默的角色
+let inks = [];                          // 墨染标记 { r, c, owner, turns }
+
 const stoneTexture = new Image();
 stoneTexture.onload = () => { if (board.length === SIZE) drawBoard(); };
 stoneTexture.src = './gomoku-stones.png';
 
-function initUI() {
-    [1, 2].forEach(p => {
-        const container = document.getElementById(`skills-${p}`);
-        container.innerHTML = '';
-        SKILLS.forEach(s => {
-            const btn = document.createElement('button');
-            btn.className = 'skill-btn'; btn.id = `btn-p${p}-${s.id}`;
-            btn.onclick = () => selectSkill(p, s.id);
-            const costIcons = Array.from({ length: s.cost }, () => '<img class="energy-icon" src="./energy-orb-cartoon.png" alt="" width="20" height="20">').join('');
-            btn.innerHTML = `<div class="skill-title"><span>${s.name}</span></div><div class="skill-cost" aria-label="消耗${s.cost}点灵力">${costIcons}</div><div class="skill-desc">${s.desc}</div>`;
-            container.appendChild(btn);
-        });
+/** 取某个玩家装备的技能 id 列表 */
+function getLoadoutFor(p) {
+    if (mode === 'online') return (loadouts && loadouts[p]) || [];
+    return (localLoadouts && localLoadouts[p]) || [];
+}
+
+/** 按装备渲染某一侧技能栏。未选技能时显示占位。 */
+function renderSkillPanel(p) {
+    const container = document.getElementById(`skills-${p}`);
+    if (!container) return;
+    const ids = getLoadoutFor(p);
+
+    // 装备没变就不重建：syncState 每秒都可能来，无脑重建会打断点击
+    const key = ids.join(',');
+    if (renderedLoadout[p] === key) return;
+    renderedLoadout[p] = key;
+
+    container.innerHTML = '';
+
+    if (!ids.length) {
+        container.innerHTML = '<div class="skill-empty">尚未装备技能</div>';
+        return;
+    }
+
+    ids.forEach((id) => {
+        const s = SKILLS.find((x) => x.id === id);
+        if (!s) return;
+        const btn = document.createElement('button');
+        btn.className = 'skill-btn';
+        btn.id = `btn-p${p}-${s.id}`;
+        btn.onclick = () => selectSkill(p, s.id);
+        const costIcons = Array.from({ length: s.cost }, () =>
+            '<img class="energy-icon" src="./energy-orb-cartoon.png" alt="" width="20" height="20">'
+        ).join('');
+        btn.innerHTML =
+            `<div class="skill-title"><span>${s.name}</span></div>` +
+            `<div class="skill-cost" aria-label="消耗${s.cost}点灵力">${costIcons}</div>` +
+            `<div class="skill-desc">${s.desc}</div>`;
+        container.appendChild(btn);
     });
+}
+
+function initUI() {
+    [1, 2].forEach(renderSkillPanel);
+}
+
+// ── 技能装备选择 ──
+let loadoutPicking = [];       // 当前正在勾选的技能 id
+let loadoutTarget = 0;         // 正在给谁选（1 / 2）
+let loadoutOpen = false;
+const renderedLoadout = { 1: '', 2: '' };  // 缓存已渲染的装备，避免重复重建 DOM
+
+function randomLoadoutIds() {
+    const pool = SKILLS.map((s) => s.id);
+    const out = [];
+    while (out.length < LOADOUT_SIZE && pool.length) {
+        out.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+    }
+    return out;
+}
+
+function openLoadout(target) {
+    loadoutTarget = target;
+    loadoutOpen = true;
+
+    // 已有装备时预填，方便微调而不是从头选
+    const existing = mode === 'online'
+        ? (loadouts[target] || null)
+        : (localLoadouts[target] || null);
+    loadoutPicking = Array.isArray(existing) ? [...existing] : [];
+
+    const who = target === 1 ? '⚫ 黑方' : '⚪ 白方';
+    document.getElementById('loadoutTitle').innerText =
+        mode === 'online' ? '⚔️ 选择出战技能' : `⚔️ ${who} 选择出战技能`;
+    document.getElementById('loadoutSubtitle').innerHTML =
+        `从 ${SKILLS.length} 个技能中挑选 <strong>${LOADOUT_SIZE}</strong> 个，开局后不可更改`;
+
+    renderLoadoutGrid();
+    document.getElementById('loadoutOverlay').classList.add('show');
+}
+
+function closeLoadout() {
+    loadoutOpen = false;
+    document.getElementById('loadoutOverlay').classList.remove('show');
+}
+
+function renderLoadoutGrid() {
+    const grid = document.getElementById('loadoutGrid');
+    grid.innerHTML = '';
+
+    SKILLS.forEach((s) => {
+        const picked = loadoutPicking.includes(s.id);
+        const isFull = loadoutPicking.length >= LOADOUT_SIZE && !picked;
+
+        const card = document.createElement('button');
+        card.className = 'loadout-card' + (picked ? ' picked' : '') + (isFull ? ' full' : '');
+        card.disabled = isFull;
+        card.onclick = () => toggleLoadoutSkill(s.id);
+
+        const costIcons = Array.from({ length: s.cost }, () =>
+            '<img class="energy-icon" src="./energy-orb-cartoon.png" alt="" width="16" height="16">'
+        ).join('');
+        card.innerHTML =
+            `<div class="loadout-name">${s.name}</div>` +
+            `<div class="loadout-cost">${costIcons}</div>` +
+            `<div class="loadout-desc">${s.desc}</div>`;
+        grid.appendChild(card);
+    });
+
+    document.getElementById('loadoutCount').innerText = loadoutPicking.length;
+    const btn = document.getElementById('loadoutConfirm');
+    btn.disabled = loadoutPicking.length !== LOADOUT_SIZE;
+    btn.innerText = loadoutPicking.length === LOADOUT_SIZE ? '确认出战' : `还需选 ${LOADOUT_SIZE - loadoutPicking.length} 个`;
+}
+
+function toggleLoadoutSkill(id) {
+    const i = loadoutPicking.indexOf(id);
+    if (i >= 0) loadoutPicking.splice(i, 1);
+    else if (loadoutPicking.length < LOADOUT_SIZE) loadoutPicking.push(id);
+    renderLoadoutGrid();
+}
+
+function pickRandomLoadout() {
+    loadoutPicking = randomLoadoutIds();
+    renderLoadoutGrid();
+}
+
+function confirmLoadout() {
+    if (loadoutPicking.length !== LOADOUT_SIZE) return;
+    const ids = [...loadoutPicking];
+
+    if (mode === 'online') {
+        socket.emit('setLoadout', ids);
+        closeLoadout();
+        setStatus('✅ 技能已提交，等待对手选好…');
+        return;
+    }
+
+    // 本地模式：先给黑方选，再给白方选（pve 时白方由 AI 随机）
+    localLoadouts[loadoutTarget] = ids;
+    closeLoadout();
+
+    if (loadoutTarget === 1) {
+        if (mode === 'pve') {
+            localLoadouts[2] = randomLoadoutIds();
+            startLocalMatch();
+        } else {
+            openLoadout(2);
+        }
+    } else {
+        startLocalMatch();
+    }
+}
+
+function startLocalMatch() {
+    phase = 'playing';
+    renderSkillPanel(1);
+    renderSkillPanel(2);
+    updateUI();
+    drawBoard();
+    setStatus('黑方回合：请落子或发动技能');
 }
 
 socket.on('syncState', ({ state, role, roomId, onlineCount, logs }) => {
@@ -686,7 +936,30 @@ socket.on('syncState', ({ state, role, roomId, onlineCount, logs }) => {
     currentPlayer = state.currentPlayer; mp = state.mp;
     skillUsedThisTurn = state.skillUsedThisTurn; doubleStep = state.doubleStep;
     firstDoubleMove = state.firstDoubleMove; lastMove = state.lastMove; gameOver = state.gameOver;
+
+    // 新增机制的状态
+    phase = state.phase || 'playing';
+    loadouts = state.loadouts || { 1: null, 2: null };
+    readyState = state.ready || { 1: false, 2: false };
+    mines = state.mines || [];
+    silenced = state.silenced || 0;
+    inks = state.inks || [];
+
     finishSetup();
+
+    // 装备变了才重建技能栏
+    renderSkillPanel(1);
+    renderSkillPanel(2);
+
+    // 还在选技能阶段、自己又是玩家且没提交 → 弹出选择界面
+    if (phase === 'picking') {
+        const isPlayer = myRole === 1 || myRole === 2;
+        if (isPlayer && !readyState[myRole] && !loadoutOpen) {
+            openLoadout(myRole);
+        }
+    } else if (loadoutOpen) {
+        closeLoadout();
+    }
 
     const roleName = role === 1 ? '执黑' : (role === 2 ? '执白' : '观战');
     document.getElementById('roleBadge').innerText = `房:${roomId}(${onlineCount}人)|${roleName}`;
@@ -811,8 +1084,13 @@ function switchMode() {
 
 function handleReset() {
     activeSkill = null;
-    if (mode === 'online') socket.emit('restartRoom');
-    else resetLocalGame();
+    if (mode === 'online') {
+        socket.emit('restartRoom');
+    } else {
+        // 双方都有装备就沿用；否则重新走选择流程
+        const hasBoth = !!(localLoadouts[1] && localLoadouts[2]);
+        resetLocalGame(!hasBoth);
+    }
 }
 
 function showGameResult(message, winner) {
@@ -848,12 +1126,13 @@ function exitGame() {
     window.location.assign(startUrl.href);
 }
 
-function resetLocalGame() {
+function resetLocalGame(askLoadout = true) {
     document.getElementById('gameResult').hidden = true;
     board = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
     shields = Array.from({ length: SIZE }, () => Array(SIZE).fill(false));
     stealths = Array.from({ length: SIZE }, () => Array(SIZE).fill(false));
     craters = []; currentPlayer = 1; mp = { 1: 1, 2: 2 };
+    mines = []; inks = []; silenced = 0;
     activeSkill = null; skillUsedThisTurn = false; doubleStep = 0; firstDoubleMove = null;
     lastMove = null; gameOver = false;
     document.getElementById('p1-name').innerText = '黑方 (玩家1)';
@@ -865,6 +1144,23 @@ function resetLocalGame() {
       type: 'sys',
       text: `🔄 已开启${mode === 'pve' ? '单机挑战 AI' : '本地同屏双人'}模式！`,
     });
+
+    if (askLoadout) {
+        // 新开一局：先让双方选技能装备
+        phase = 'picking';
+        localLoadouts = { 1: null, 2: null };
+        renderedLoadout[1] = ''; renderedLoadout[2] = '';
+        renderSkillPanel(1); renderSkillPanel(2);
+        updateUI(); drawBoard();
+        setStatus('请先选择 6 个技能装备');
+        openLoadout(1);
+        return;
+    }
+
+    // 重开：沿用上一局的装备
+    phase = 'playing';
+    if (mode === 'pve' && !localLoadouts[2]) localLoadouts[2] = randomLoadoutIds();
+    renderSkillPanel(1); renderSkillPanel(2);
     updateUI(); drawBoard();
     setStatus('黑方回合：请落子或发动技能');
 }
@@ -883,14 +1179,19 @@ function updateUI() {
             `<span class="energy-slot">${i < mp[p] ? '<img class="energy-icon" src="./energy-orb-cartoon.png" alt="" width="20" height="20">' : '  '}</span>`
         ).join('');
         document.getElementById(`panel-${p}`).className = 'player-panel ' + (currentPlayer === p ? (p === 1 ? 'active-black' : 'active-white') : '');
-        SKILLS.forEach(s => {
+
+        getLoadoutFor(p).forEach(id => {
+            const s = SKILLS.find(x => x.id === id);
             const btn = document.getElementById(`btn-p${p}-${s.id}`);
+            if (!btn) return;
             let canControl = false;
             if (mode === 'online') canControl = (currentPlayer === p && myRole === p);
             else if (mode === 'pve') canControl = (currentPlayer === p && p === 1);
             else canControl = (currentPlayer === p);
 
-            btn.disabled = !(!gameOver && canControl && mp[p] >= s.cost && !skillUsedThisTurn && doubleStep === 0);
+            // 被【釜底抽薪】沉默时，整个回合都不能用技能
+            const muted = silenced === p;
+            btn.disabled = !(!gameOver && canControl && mp[p] >= s.cost && !skillUsedThisTurn && doubleStep === 0 && !muted);
             btn.classList.toggle('selected', canControl && activeSkill === s.id);
         });
     });
@@ -965,13 +1266,16 @@ function selectSkill(player, skillId) {
             const tips = {
                 sand: '🌪️ 点击敌方1枚无护盾棋子：将其吹偏到周围空位，并在原位留下风眼禁区！',
                 crater: '🧱 点击空位放置封印路障',
-                shield: '🛡️ [1⚡] 点击己方1枚棋子套上永久铁索护盾（本回合仍可继续落子）',
+                shield: '🛡️ [1⚡] 点击己方1枚棋子套护盾，可挡一次技能（本回合仍可继续落子）',
+                mine: '💣 [2⚡] 点击任意空位秘密埋雷，敌子在周围1格落子即引爆（本回合仍可继续落子）',
+                silence: '⛓️ [2⚡] 点击棋盘任意处发动：削敌方1点灵力，敌方下回合只能普通落子',
+                ink: '☣️ [3⚡] 点击敌方1枚棋子施加墨染，3步内不清除将腐化为己方',
                 stealth: '🕵️ 点击空位落下一枚隐身棋子',
                 flood: '🌊 点击任意位置，冲散该行最多2枚无护盾棋子',
                 convert: '☯️ 点击敌方1枚无护盾棋子策反',
                 thunder: '🌩️ 点击棋盘任意中心点，炸毁周围3x3无护盾棋子'
             };
-            setStatus(tips[skillId]);
+            setStatus(tips[skillId] || '已选择技能，请点击棋盘目标');
         }
     }
     updateUI();
@@ -999,6 +1303,24 @@ function drawBoard() {
     }
 
     // 绘制路障与旋风风眼
+    // 诡雷：服务端只下发自己埋的，所以这里直接画
+    (mines || []).forEach((m) => {
+        const x = PADDING + m.c * CELL, y = PADDING + m.r * CELL;
+        ctx.save();
+        ctx.fillStyle = 'rgba(210, 15, 57, 0.12)';
+        ctx.beginPath(); ctx.arc(x, y, 13, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#d20f39'; ctx.lineWidth = 1.6;
+        ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.stroke();
+        // 引信
+        ctx.beginPath();
+        ctx.moveTo(x, y - 7);
+        ctx.lineTo(x, y - 12);
+        ctx.stroke();
+        ctx.fillStyle = '#d20f39';
+        ctx.beginPath(); ctx.arc(x, y - 13, 2, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+    });
+
     craters.forEach(cr => {
         const x = PADDING + cr.c * CELL, y = PADDING + cr.r * CELL;
         if (cr.type === 'wind') {
@@ -1045,6 +1367,19 @@ function drawBoard() {
             if (shields[r][c]) {
                 ctx.strokeStyle = '#f9e2af'; ctx.lineWidth = 3;
                 ctx.beginPath(); ctx.arc(x, y, 16, 0, Math.PI * 2); ctx.stroke();
+            }
+            // 墨染：紫色虚线环 + 剩余步数
+            const ink = (inks || []).find((k) => k.r === r && k.c === c);
+            if (ink) {
+                ctx.strokeStyle = '#8839ab'; ctx.lineWidth = 2.4;
+                ctx.setLineDash([4, 3]);
+                ctx.beginPath(); ctx.arc(x, y, 13, 0, Math.PI * 2); ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.fillStyle = '#8839ab';
+                ctx.font = 'bold 10px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(String(ink.turns), x + 12, y - 12);
             }
             if (lastMove && lastMove.r === r && lastMove.c === c && !stealths[r][c]) {
                 ctx.strokeStyle = '#fe640b'; ctx.lineWidth = 2;
@@ -1199,6 +1534,41 @@ function handleLocalAction(r, c) {
         return nextLocalTurn(false);
     }
 
+    if (activeSkill === 'mine') {
+        if (board[r][c] !== 0 || isCrater(r, c)) return setStatus('❌ 请选择空位埋雷！');
+        if (mines.some((m) => m.r === r && m.c === c)) return setStatus('❌ 这里已经埋了雷！');
+        mines.push({ r, c, owner: currentPlayer });
+        mp[currentPlayer] -= 2; skillUsedThisTurn = true; activeSkill = null;
+        appendLogItem({ type: 'skill', text: `${pTag} 秘密埋下一颗【💣草木皆兵】诡雷！` });
+        playSound('skill'); drawBoard(); updateUI();
+        return setStatus('💣 诡雷已埋下！请继续落子');
+    }
+
+    if (activeSkill === 'silence') {
+        const before = mp[enemy];
+        mp[enemy] = Math.max(0, mp[enemy] - 1);
+        silenced = enemy;
+        mp[currentPlayer] -= 2; skillUsedThisTurn = true; activeSkill = null;
+        appendLogItem({ type: 'skill', text: `${pTag} 发动【⛓️釜底抽薪】，${enemyName}灵力 ${before} → ${mp[enemy]}，下回合沉默！` });
+        playSound('skill'); drawBoard(); updateUI();
+        return setStatus('⛓️ 釜底抽薪已生效！请继续落子');
+    }
+
+    if (activeSkill === 'ink') {
+        if (board[r][c] !== enemy) return setStatus('❌ 请选择敌方棋子！');
+        if (absorbHit(r, c)) {
+            appendLogItem({ type: 'skill', text: `🛡️ ${pTag} 的【墨染】被 [${pos}] 的护盾挡下！` });
+            drawBoard();
+            return setStatus('🛡️ 护盾挡下了墨染！护盾已消耗，可继续落子');
+        }
+        if (inks.some((k) => k.r === r && k.c === c)) return setStatus('❌ 这枚棋子已被墨染！');
+        inks.push({ r, c, owner: currentPlayer, turns: 3 });
+        mp[currentPlayer] -= 3; skillUsedThisTurn = true; activeSkill = null;
+        appendLogItem({ type: 'skill', text: `${pTag} 对 [${pos}] 施加【☣️墨染】，3步内不清除将腐化！` });
+        playSound('skill'); drawBoard(); updateUI();
+        return setStatus('☣️ 墨染已施加！请继续落子');
+    }
+
     if (board[r][c] === enemy && stealths[r][c]) {
         stealths[r][c] = false; playSound('skill'); drawBoard();
         appendLogItem({
@@ -1211,6 +1581,21 @@ function handleLocalAction(r, c) {
     }
 
     if (board[r][c] !== 0 || isCrater(r, c)) return setStatus('❌ 该位置已有棋子、处于风眼或被路障封印！');
+
+    // 诡雷：对方在雷周围 1 格内落子即引爆
+    const mineHit = mines.findIndex(
+        (m) => m.owner !== currentPlayer && Math.max(Math.abs(m.r - r), Math.abs(m.c - c)) <= 1
+    );
+    if (mineHit >= 0) {
+        mines.splice(mineHit, 1);
+        craters.push({ r, c, duration: 2, type: 'crater' });
+        appendLogItem({ type: 'skill', text: `💥 ${pTag} 落子 [${pos}] 触发【💣草木皆兵】诡雷！棋子被炸毁，原地封印 2 回合` });
+        playSound('skill');
+        drawBoard();
+        setStatus(`💥 踩中诡雷！落子被炸毁，[${pos}] 化为封印弹坑`);
+        setTimeout(() => nextLocalTurn(false), 600);
+        return;
+    }
 
     if (doubleStep === 1) {
         board[r][c] = currentPlayer;
@@ -1271,9 +1656,40 @@ function nextLocalTurn(gainMp) {
         }
     }
 
-    currentPlayer = 3 - currentPlayer; activeSkill = null; skillUsedThisTurn = false; doubleStep = 0; firstDoubleMove = null;
+    // 墨染计时：到期时若目标仍是敌子，腐化为施法者颜色
+    if (inks.length) {
+        const keep = [];
+        for (const ink of inks) {
+            ink.turns--;
+            if (ink.turns > 0) { keep.push(ink); continue; }
+            const victim = 3 - ink.owner;
+            if (board[ink.r][ink.c] === victim) {
+                board[ink.r][ink.c] = ink.owner;
+                appendLogItem({
+                    type: 'win',
+                    text: `☣️ ${coordStr(ink.r, ink.c)} 的棋子被【墨染】腐化，归属${ink.owner === 1 ? '⚫黑方' : '⚪白方'}！`,
+                });
+                if (checkWin(ink.r, ink.c, ink.owner)) {
+                    inks = [];
+                    drawBoard(); updateUI();
+                    return endLocalGame(`🎉 ${ink.owner === 1 ? '黑方' : '白方'}通过【墨染】腐化敌子获胜！`);
+                }
+            }
+        }
+        inks = keep;
+    }
+
+    currentPlayer = 3 - currentPlayer;
+    activeSkill = null; doubleStep = 0; firstDoubleMove = null;
+
+    // 沉默只作用于被沉默者的那一个回合
+    if (silenced && silenced !== currentPlayer) silenced = 0;
+    skillUsedThisTurn = silenced === currentPlayer;
+
     updateUI(); drawBoard();
-    setStatus(`${currentPlayer === 1 ? '黑方' : '白方'}回合：请落子或发动技能`);
+    setStatus(silenced === currentPlayer
+        ? `${currentPlayer === 1 ? '黑方' : '白方'}回合：被【釜底抽薪】沉默，本回合只能普通落子`
+        : `${currentPlayer === 1 ? '黑方' : '白方'}回合：请落子或发动技能`);
     if (mode === 'pve' && currentPlayer === 2 && !gameOver) setTimeout(aiPlay, 550);
 }
 

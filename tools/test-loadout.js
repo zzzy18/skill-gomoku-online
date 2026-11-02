@@ -18,6 +18,7 @@ const ok = (m) => { pass++; console.log(`  \x1b[0;32m✓\x1b[0m ${m}`); };
 const bad = (m) => { fail++; console.log(`  \x1b[0;31m✗\x1b[0m ${m}`); };
 
 /** 测试用的标准装备 */
+const LOADOUT_SIZE = 6;
 const LOADOUT_A = ['shield', 'sand', 'crater', 'mine', 'silence', 'ink'];
 
 function connect() {
@@ -351,6 +352,54 @@ async function main() {
 
     d1.close();
     d2.close();
+
+    // ══════ 6. 进房时携带装备 ══════
+    console.log('\n\x1b[1m6. 进房时携带装备（创建/加入即选技能）\x1b[0m');
+    const room5 = 'LJ' + Date.now().toString(36).slice(-4).toUpperCase();
+    const e1 = connect();
+    const e1States = [];
+    e1.on('syncState', (m) => e1States.push(m));
+
+    await new Promise((res) => {
+        e1.on('connect', () => {
+            // 新流程：joinRoom 直接带 loadout，进房即开局
+            e1.emit('joinRoom', { roomId: room5, loadout: LOADOUT_A });
+            setTimeout(res, 700);
+        });
+    });
+
+    const st5 = e1States[e1States.length - 1];
+    if (st5 && st5.state.phase === 'playing') {
+        ok('★ 带装备进房后直接进入对局（不再二次弹窗选技能）');
+    } else {
+        bad(`带装备进房后仍在 ${st5?.state?.phase} 阶段`);
+    }
+    if (Array.isArray(st5?.state?.loadouts?.[1]) && st5.state.loadouts[1].length === LOADOUT_SIZE) {
+        ok('装备已随进房生效');
+    } else {
+        bad('装备未生效');
+    }
+
+    // 非法装备应被忽略（退回 picking，而不是崩掉）
+    const e2 = connect();
+    const e2States = [];
+    e2.on('syncState', (m) => e2States.push(m));
+    const room6 = 'LK' + Date.now().toString(36).slice(-4).toUpperCase();
+    await new Promise((res) => {
+        e2.on('connect', () => {
+            e2.emit('joinRoom', { roomId: room6, loadout: ['shield', 'hack', 'fake'] });
+            setTimeout(res, 500);
+        });
+    });
+    const st6 = e2States[e2States.length - 1];
+    if (st6 && st6.state.phase === 'picking' && !st6.state.loadouts[1]) {
+        ok('★ 非法装备被忽略，退回选技能阶段');
+    } else {
+        bad(`非法装备未被拦截（phase=${st6?.state?.phase}）`);
+    }
+
+    e1.close();
+    e2.close();
 
     console.log('');
     console.log('─'.repeat(58));

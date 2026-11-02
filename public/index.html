@@ -568,6 +568,7 @@
                     <div class="loadout-tip" id="loadoutTip">点击卡片选择或取消</div>
                 </div>
                 <div class="loadout-actions">
+                    <button class="ctrl-btn" id="loadoutCancel" onclick="cancelLoadout()" style="display:none">取消</button>
                     <button class="ctrl-btn" id="loadoutRandom" onclick="pickRandomLoadout()">🎲 随机</button>
                     <button class="ctrl-btn create-btn" id="loadoutConfirm" onclick="confirmLoadout()" disabled>确认出战</button>
                 </div>
@@ -815,7 +816,17 @@ function initUI() {
 let loadoutPicking = [];       // 当前正在勾选的技能 id
 let loadoutTarget = 0;         // 正在给谁选（1 / 2）
 let loadoutOpen = false;
+let pendingJoinCode = null;    // 待确认技能后要进的房间
 const renderedLoadout = { 1: '', 2: '' };  // 缓存已渲染的装备，避免重复重建 DOM
+
+// 记住上次的装备，下次进房预填，不用每次从头点
+let lastLoadout = null;
+try {
+    lastLoadout = JSON.parse(localStorage.getItem('gomokuLoadout') || 'null');
+    if (!Array.isArray(lastLoadout) || lastLoadout.length !== LOADOUT_SIZE) lastLoadout = null;
+} catch (e) {
+    lastLoadout = null;
+}
 
 function randomLoadoutIds() {
     const pool = SKILLS.map((s) => s.id);
@@ -830,9 +841,9 @@ function openLoadout(target) {
     loadoutTarget = target;
     loadoutOpen = true;
 
-    // 已有装备时预填，方便微调而不是从头选
+    // 已有装备时预填，方便微调而不是从头选；没有就用上次的选择
     const existing = mode === 'online'
-        ? (loadouts[target] || null)
+        ? (loadouts[target] || lastLoadout)
         : (localLoadouts[target] || null);
     loadoutPicking = Array.isArray(existing) ? [...existing] : [];
 
@@ -843,12 +854,27 @@ function openLoadout(target) {
         `从 ${SKILLS.length} 个技能中挑选 <strong>${LOADOUT_SIZE}</strong> 个，开局后不可更改`;
 
     renderLoadoutGrid();
+
+    // 只有「点创建/加入」触发的这次才给取消选项
+    const cancelBtn = document.getElementById('loadoutCancel');
+    if (cancelBtn) cancelBtn.style.display = pendingJoinCode ? '' : 'none';
+
     document.getElementById('loadoutOverlay').classList.add('show');
 }
 
 function closeLoadout() {
     loadoutOpen = false;
     document.getElementById('loadoutOverlay').classList.remove('show');
+}
+
+/** 取消：如果是「点加入房间」触发的，就直接放弃这次进房 */
+function cancelLoadout() {
+    closeLoadout();
+    if (pendingJoinCode) {
+        const was = pendingJoinCode;
+        pendingJoinCode = null;
+        setStatus('已取消加入房间 ' + was);
+    }
 }
 
 function renderLoadoutGrid() {
@@ -897,6 +923,20 @@ function confirmLoadout() {
     const ids = [...loadoutPicking];
 
     if (mode === 'online') {
+        lastLoadout = ids;
+        try { localStorage.setItem('gomokuLoadout', JSON.stringify(ids)); } catch (e) {}
+
+        // 场景一：还没进房（点创建/加入触发）→ 带着装备一起进房
+        if (pendingJoinCode) {
+            const code = pendingJoinCode;
+            pendingJoinCode = null;
+            closeLoadout();
+            doJoinWithLoadout(code, ids);
+            setStatus('正在进入房间 ' + code + '…');
+            return;
+        }
+
+        // 场景二：已在房内但还没装备（后进房补选）
         socket.emit('setLoadout', ids);
         closeLoadout();
         setStatus('✅ 技能已提交，等待对手选好…');
@@ -992,6 +1032,10 @@ socket.on('connect', () => {
     console.log('[socket] 已连接到', socket.io.uri);
 });
 
+/**
+ * 进房前先选技能。
+ * 技能绑定在「创建/加入房间」这个动作上，而不是进房后被弹窗打断。
+ */
 function joinOnlineRoom() {
     const code = document.getElementById('roomInput').value.trim().toUpperCase();
     if (!code) return setStatus('⚠️ 请输入房间码，或点击【✨ 创建随机房】');
@@ -1005,10 +1049,21 @@ function joinOnlineRoom() {
     mode = 'online';
     activeSkill = null;
     clearSavedSession();
+
+    // 记住要进的房间，等玩家选完技能再真正进房
+    pendingJoinCode = code;
+    openLoadout(1);
+}
+
+/** 带着装备进房 */
+function doJoinWithLoadout(code, ids) {
+    const options = { roomId: code };
+    if (Array.isArray(ids) && ids.length) options.loadout = ids;
+
     if (socket.connected) {
-        socket.emit('joinRoom', code);
+        socket.emit('joinRoom', options);
     } else {
-        socket.once('connect', () => socket.emit('joinRoom', code));
+        socket.once('connect', () => socket.emit('joinRoom', options));
         setStatus('正在连接服务器…');
     }
 }

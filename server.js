@@ -331,9 +331,22 @@ function maybeStartMatch(room) {
     return true;
 }
 
+/** 校验并规范化装备列表；不合法返回 null */
+function normalizeLoadout(ids) {
+    if (!Array.isArray(ids) || ids.length !== LOADOUT_SIZE) return null;
+    const uniq = [...new Set(ids)];
+    if (uniq.length !== LOADOUT_SIZE) return null;
+    if (uniq.some((id) => !SKILL_DEFS[id])) return null;
+    return uniq;
+}
+
 io.on('connection', (socket) => {
-    socket.on('joinRoom', (roomId) => {
-        roomId = String(roomId || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+    socket.on('joinRoom', (payload) => {
+        // 兼容两种调用：joinRoom('ABC123') 或 joinRoom({ roomId, loadout })
+        const rawId = typeof payload === 'string' ? payload : (payload && payload.roomId);
+        const wantedLoadout = payload && typeof payload === 'object' ? payload.loadout : null;
+
+        const roomId = String(rawId || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
         if (!roomId) return socket.emit('errMsg', '❌ 请输入有效的字母数字房间号！');
 
         leaveCurrentRoom(socket);
@@ -386,6 +399,16 @@ io.on('connection', (socket) => {
         const roleLabel = role === 1 ? '⚫黑方' : (role === 2 ? '⚪白方' : '👀观战');
         addRoomLog(room, 'sys',
             saved ? roleLabel + ' 重新连接，恢复座位' : '玩家加入房间 [' + roomId + ']，分配身份：' + roleLabel);
+
+        // 进房时直接带上技能装备（创建/加入房间时选好的）
+        const loadout = normalizeLoadout(wantedLoadout);
+        if (loadout && (role === 1 || role === 2) && !Array.isArray(room.state.loadouts[role])) {
+            room.state.loadouts[role] = loadout;
+            room.state.ready[role] = true;
+            addRoomLog(room, 'sys', `${roleLabel} 已装备 ${LOADOUT_SIZE} 个技能`);
+            maybeStartMatch(room);
+        }
+
         broadcastRoom(roomId);
     });
 

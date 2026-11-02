@@ -53,11 +53,21 @@ ok "本地语法检查通过"
 info "上传到 $TARGET:$REMOTE_DIR"
 ssh "$TARGET" "mkdir -p $REMOTE_DIR/public"
 scp -q "$ROOT/server.js" "$TARGET:$REMOTE_DIR/server.js"
-scp -q "$ROOT/public/index.html" "$TARGET:$REMOTE_DIR/public/index.html"
 # 首次部署时补齐构建文件
 scp -q "$ROOT/package.json" "$TARGET:$REMOTE_DIR/package.json" 2>/dev/null || true
 scp -q "$ROOT/Dockerfile" "$TARGET:$REMOTE_DIR/Dockerfile" 2>/dev/null || true
 scp -q "$ROOT/.dockerignore" "$TARGET:$REMOTE_DIR/.dockerignore" 2>/dev/null || true
+
+# public 整个目录走 tar 管道：scp 不支持排除规则，
+# 而 *.bak 这类编辑备份不该传到服务器。
+# 顺便清理已被 WebP 取代的旧 PNG（board-wood.png）。
+(
+  cd "$ROOT/public" && tar -czf - --exclude='*.bak' .
+) | ssh "$TARGET" "
+  cd $REMOTE_DIR/public || exit 1
+  tar -xzf -
+  rm -f board-wood.png   # 已改用 board-wood.webp
+"
 ok "已上传"
 
 # ── 构建并重启 ──

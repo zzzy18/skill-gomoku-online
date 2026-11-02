@@ -1,0 +1,17 @@
+{
+  "name": "skill-gomoku-online",
+  "version": "2.5.0",
+  "main": "server.js",
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.4"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "bash tools/run-test.sh",
+    "test:browser": "node tools/browser-sim.js"
+  }
+}

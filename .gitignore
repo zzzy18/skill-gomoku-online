@@ -1,0 +1,19 @@
+# 依赖
+node_modules/
+
+# 版本备份（本地留档，不入库）
+backups/
+
+# 编辑过程中的临时备份
+*.bak
+*.orig
+*~
+
+# 日志与临时文件
+*.log
+.DS_Store
+Thumbs.db
+
+# 编辑器
+.vscode/
+.idea/

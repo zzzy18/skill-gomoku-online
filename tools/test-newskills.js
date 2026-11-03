@@ -226,6 +226,51 @@ async function main() {
 
     d1.close(); d2.close();
 
+    // ══════ 4. 门格可落子 ══════
+    console.log('\n\x1b[1m4. 传送门所在格能否落子\x1b[0m');
+    const room4 = 'NP' + Date.now().toString(36).slice(-4).toUpperCase();
+    const f1 = await joinReady(room4);
+    const f2 = await joinReady(room4);
+    const pf = { a: f1, b: f2 };
+
+    // 攒灵力到 3 并让回合转回黑方
+    await place(pf, 1, 0, 0);
+    await place(pf, 2, 1, 1);
+    await place(pf, 1, 0, 1);
+    await place(pf, 2, 1, 2);
+
+    st = f1.state();
+    if (st.currentPlayer === 1 && st.mp[1] >= 3) {
+        f1.socket.emit('boardAction', { r: 5, c: 5, skill: 'bridge' });
+        await sleep(250);
+        f1.socket.emit('boardAction', { r: 5, c: 10, skill: 'bridge' });
+        await sleep(380);
+
+        st = f1.state();
+        if ((st.portals || []).length === 1) {
+            ok('传送门已架设');
+
+            // 直接落在门格上
+            f1.errors.length = 0;
+            f1.socket.emit('boardAction', { r: 5, c: 5 });
+            await sleep(400);
+            st = f1.state();
+
+            if (st.board[5][5] === 1) ok('★ 传送门所在格可以正常落子');
+            else bad(`门上落子被拒（board=${st.board[5][5]}） 错误=${JSON.stringify(f1.errors)}`);
+
+            // 门还在（落子不该抹掉传送门）
+            if ((st.portals || []).length === 1) ok('★ 落子后传送门仍然保留');
+            else bad('落子后传送门消失了');
+        } else {
+            bad('架桥失败，跳过');
+        }
+    } else {
+        bad(`灵力不足（${st?.mp?.[1]}），跳过`);
+    }
+
+    f1.close(); f2.close();
+
     console.log('');
     console.log('─'.repeat(58));
     if (fail === 0) console.log(`\x1b[0;32m全部通过\x1b[0m  ${pass} 项`);

@@ -154,6 +154,11 @@ function isAhead(dr, dc, fromR, fromC, toR, toC) {
  * 遇到传送门就跳到另一端继续（只跳一次），
  * 但要求另一端仍在同一条线的前方，否则视为断开——
  * 两个门不在同一线上时不该把不相干的棋串起来。
+ *
+ * 门格本身可以落子：
+ *   - 门上空着 → 当纯通道跳过（压缩间隔）
+ *   - 门上有己方棋子 → 先计数再跳（这枚子也算进连珠）
+ *   - 门上有敌方棋子 → 断开
  */
 function walkCount(board, r, c, dr, dc, player, portalMap) {
     let n = 0;
@@ -166,8 +171,20 @@ function walkCount(board, r, c, dr, dc, player, portalMap) {
         const link = portalMap && portalMap.get(nr + ',' + nc);
         if (link && !jumped) {
             if (!isAhead(dr, dc, nr, nc, link.r, link.c)) break;
+
+            // 这一端的门格
+            if (board[nr][nc] === player) n++;
+            else if (board[nr][nc] !== 0) break; // 门上是敌子，过不去
+
             jumped = true;
-            nr = link.r + dr;   // 门本身是空位通道，不计数
+
+            // 另一端：己方子要计数，空门当通道跳过，敌子则断开
+            if (board[link.r][link.c] === player) {
+                n++;
+            } else if (board[link.r][link.c] !== 0) {
+                break;
+            }
+            nr = link.r + dr;
             nc = link.c + dc;
             continue;
         }
@@ -909,7 +926,6 @@ io.on('connection', (socket) => {
                 if (s.board[r][c] !== 0 || isBlocked(s.craters, r, c)) {
                     return socket.emit('errMsg', '❌ 陨石需要砸在空位上！');
                 }
-                if (portalAt(s, r, c)) return socket.emit('errMsg', '❌ 这里被传送门占着！');
 
                 s.board[r][c] = role;
                 s.stealths[r][c] = false;
@@ -976,9 +992,8 @@ io.on('connection', (socket) => {
         if (s.board[r][c] !== 0 || isBlocked(s.craters, r, c)) {
             return socket.emit('errMsg', '❌ 该位置已有棋子、处于风眼或被路障封印！');
         }
-        if (portalAt(s, r, c)) {
-            return socket.emit('errMsg', '❌ 这里被传送门占着，换个位置');
-        }
+        // 注意：传送门格是允许落子的（门上站子也算连珠节点），
+        // 所以这里不再用 portalAt 拦截。
 
         // 自己的雷占着位置，别让棋子压上去
         if ((s.mines || []).some((m) => m.owner === role && m.r === r && m.c === c)) {

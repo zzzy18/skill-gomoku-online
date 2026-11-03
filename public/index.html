@@ -1542,6 +1542,14 @@ function drawBoard() {
                 ctx.strokeStyle = '#f9e2af'; ctx.lineWidth = 3;
                 ctx.beginPath(); ctx.arc(x, y, 16, 0, Math.PI * 2); ctx.stroke();
             }
+            // 门格上落了子时，补一圈紫色虚环，免得棋子把传送门盖得看不出来
+            if (isPortal(r, c)) {
+                ctx.strokeStyle = 'rgba(155, 89, 182, 0.9)';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([3, 3]);
+                ctx.beginPath(); ctx.arc(x, y, 18.5, 0, Math.PI * 2); ctx.stroke();
+                ctx.setLineDash([]);
+            }
             // 墨染：紫色虚线环 + 剩余步数
             const ink = (inks || []).find((k) => k.r === r && k.c === c);
             if (ink) {
@@ -1802,7 +1810,6 @@ function handleLocalAction(r, c) {
 
     if (activeSkill === 'meteor') {
         if (board[r][c] !== 0 || isCrater(r, c)) return setStatus('❌ 陨石需要砸在空位上！');
-        if (isPortal(r, c)) return setStatus('❌ 这里被传送门占着！');
 
         board[r][c] = currentPlayer;
         stealths[r][c] = false; shields[r][c] = false;
@@ -1855,7 +1862,7 @@ function handleLocalAction(r, c) {
     }
 
     if (board[r][c] !== 0 || isCrater(r, c)) return setStatus('❌ 该位置已有棋子、处于风眼或被路障封印！');
-    if (isPortal(r, c)) return setStatus('❌ 这里被传送门占着，换个位置');
+    // 传送门格允许落子（门上的子也算连珠节点）
 
     // 诡雷：对方在雷周围 1 格内落子即引爆
     const mineHit = mines.findIndex(
@@ -2006,7 +2013,8 @@ function isAhead(dr, dc, fromR, fromC, toR, toC) {
     return Math.abs(vr) === Math.abs(vc) && Math.sign(vr) === dr && Math.sign(vc) === dc;
 }
 
-/** 沿方向数同色棋子，遇到传送门跳到另一端继续（只跳一次） */
+/** 沿方向数同色棋子，遇到传送门跳到另一端继续（只跳一次）
+ *  门上空着=纯通道；门上有己方子=计数后跳；门上是敌子=断开。 */
 function walkCount(r, c, dr, dc, player, portalMap) {
     let n = 0;
     let nr = r + dr, nc = c + dc;
@@ -2016,7 +2024,11 @@ function walkCount(r, c, dr, dc, player, portalMap) {
         const link = portalMap && portalMap.get(nr + ',' + nc);
         if (link && !jumped) {
             if (!isAhead(dr, dc, nr, nc, link.r, link.c)) break;
+            if (board[nr][nc] === player) n++;
+            else if (board[nr][nc] !== 0) break;
             jumped = true;
+            if (board[link.r][link.c] === player) n++;
+            else if (board[link.r][link.c] !== 0) break;
             nr = link.r + dr;
             nc = link.c + dc;
             continue;

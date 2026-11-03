@@ -720,6 +720,7 @@ const socket = (typeof io === 'function')
 // 服务端进房时会下发 session（token + role + roomId），
 // 存进 localStorage 后，刷新页面能凭 token 恢复原座位。
 let savedSession = null;
+let resumeTimer = null;   // 恢复超时兜底
 try {
     savedSession = JSON.parse(localStorage.getItem('gomokuSession') || 'null');
 } catch (e) { savedSession = null; }
@@ -731,13 +732,54 @@ socket.on('session', (se) => {
     }
 });
 
-// 连接建立时若本地有会话记录，先尝试恢复；恢复失败服务端会提示
+/**
+ * 连接建立时恢复上次的房间。
+ *
+ * 这里不能再判断「开屏卡片是否可见」——刷新后卡片一定是显示的，
+ * 那样 resume 永远不会发出，表现就是「一刷新就退出房间」。
+ * 有会话记录就说明刷新前正在对局，应当直接恢复。
+ */
 socket.on('connect', () => {
-    if (!document.getElementById('boardStartCard').hidden) return;
-    if (mode === 'online' && savedSession && savedSession.token && savedSession.roomId) {
-        socket.emit('resume', { roomId: savedSession.roomId, token: savedSession.token });
-    }
+    if (mode !== 'online') return;
+    if (!savedSession || !savedSession.token || !savedSession.roomId) return;
+
+    setStatus('🔄 正在恢复上次的房间 ' + savedSession.roomId + ' …');
+    socket.emit('resume', { roomId: savedSession.roomId, token: savedSession.token });
+
+    // 兜底：服务端没回应（房间已被清理等）也要让玩家落地
+    clearTimeout(resumeTimer);
+    resumeTimer = setTimeout(() => {
+        if (!currentRoomId) {
+            clearSavedSession();
+            backToStartScreen();
+            setStatus('⚠️ 恢复房间超时，请重新创建或加入');
+        }
+    }, 4000);
 });
+
+/** 恢复失败：清掉失效会话，回到开屏 */
+socket.on('resumeFailed', (info) => {
+    clearTimeout(resumeTimer);
+    clearSavedSession();
+    backToStartScreen();
+    const why = info && info.reason === 'room-gone'
+        ? '房间已关闭'
+        : info && info.reason === 'token-expired' ? '座位已被释放' : '会话失效';
+    setStatus('⚠️ ' + why + '，请重新创建或加入房间');
+});
+
+/** 回到开屏：清掉对局界面状态，露出开始卡片 */
+function backToStartScreen() {
+    document.body.classList.add('pre-game');
+    document.getElementById('boardEntry').classList.remove('hidden');
+    document.getElementById('topBar').style.display = '';
+    document.getElementById('boardStartCard').hidden = false;
+    document.getElementById('boardStartCard').classList.remove('hidden');
+    document.getElementById('boardRoomCard').hidden = true;
+    document.getElementById('boardRoomCard').classList.add('hidden');
+    currentRoomId = '';
+    myRole = 0;
+}
 
 // 主动换房（点了「创建随机房」或「加入」）时清除旧会话，避免误恢复
 function clearSavedSession() {
@@ -978,6 +1020,9 @@ function startLocalMatch() {
 
 socket.on('syncState', ({ state, role, roomId, onlineCount, logs }) => {
     if (mode !== 'online') return;
+    // 收到状态就说明房间已连上，取消恢复超时兜底
+    clearTimeout(resumeTimer);
+    resumeTimer = null;
     myRole = role;
     currentRoomId = roomId;
     board = state.board; shields = state.shields; stealths = state.stealths; craters = state.craters;

@@ -498,11 +498,15 @@ io.on('connection', (socket) => {
     socket.on('resume', (payload) => {
         const rid = String(payload && payload.roomId || '').trim().toUpperCase();
         const tk = payload && payload.token;
+
+        // 失败必须明确告知客户端，否则前端会一直停在“恢复中”
+        if (!tk) return socket.emit('resumeFailed', { reason: 'missing-token' });
+
         const room = rooms.get(rid);
-        if (!room || !tk) return;
+        if (!room) return socket.emit('resumeFailed', { reason: 'room-gone', roomId: rid });
 
         const found = findSeatByToken(room, tk);
-        if (!found) return socket.emit('errMsg', '❌ 会话已过期，请重新加入房间');
+        if (!found) return socket.emit('resumeFailed', { reason: 'token-expired', roomId: rid });
 
         leaveCurrentRoom(socket);
         clearTimeout(found.seat.dropTimer);

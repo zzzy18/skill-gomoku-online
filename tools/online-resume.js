@@ -34,7 +34,10 @@ function joinRoom(label) {
       setTimeout(done, 300);
     });
     s.on('syncState', (m) => (state = m));
-    s.on('connect', () => s.emit('joinRoom', room));
+    // 装备系统上线后，进房必须带 loadout，否则会停在 picking 阶段无法落子
+    s.on('connect', () =>
+      s.emit('joinRoom', { roomId: room, loadout: ['shield', 'sand', 'crater', 'flood', 'convert', 'thunder'] })
+    );
     s.on('connect_error', (e) => {
       console.log(`  [${label}] 连接失败: ${e.message}`);
       clearTimeout(killer);

@@ -614,6 +614,19 @@ io.on('connection', (socket) => {
         io.to(socket.roomId).emit('sound', 'skill');
     });
 
+    /** 主动退出对局：释放座位并通知房间 */
+    socket.on('leaveRoom', () => {
+        const room = rooms.get(socket.roomId);
+        if (!room) return;
+        const role = room.players[socket.id];
+        if (role === 1 || role === 2) {
+            addRoomLog(room, 'sys',
+                `${role === 1 ? '⚫黑方' : '⚪白方'} 退出了对局`);
+        }
+        socket.bridgeFirst = null;
+        leaveCurrentRoom(socket);
+    });
+
     /** 重新选技能（对局结束后想换装备） */
     socket.on('resetLoadout', () => {
         const room = rooms.get(socket.roomId);

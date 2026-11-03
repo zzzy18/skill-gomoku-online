@@ -423,6 +423,7 @@
             <span class="badge" id="roleBadge" title="点击复制房间号" onclick="copyRoomId()">未入房</span>
         </div>
         <button class="ctrl-btn" onclick="handleReset()">🔄 重开</button>
+        <button class="ctrl-btn" onclick="leaveMatch()">🚪 退出对局</button>
         <button class="ctrl-btn rule-btn" onclick="toggleRules(true)">📖 规则说明</button>
     </div>
 
@@ -696,6 +697,49 @@ const SKILLS = [
 const SIZE = 15, CELL = 36, PADDING = 18, MAX_MP = 8;
 // 每人装备的技能数量（与服务端一致）
 const LOADOUT_SIZE = 6;
+
+/** 选中技能后，回合提示条上的「点哪里」指引 */
+const SKILL_TARGET_HINT = {
+    shield: '点击己方棋子套护盾',
+    sacrifice: '点击己方棋子销毁',
+    sand: '点击敌方棋子吹飞',
+    ink: '点击敌方棋子标记墨毒',
+    convert: '点击敌方棋子策反',
+    crater: '点击空位放置路障',
+    mine: '点击空位埋雷',
+    bridge: '点击两个空位架桥',
+    meteor: '点击空位砸下陨石',
+    stealth: '点击空位落隐身棋',
+    silence: '点击棋盘任意处发动',
+    flood: '点击任意处冲散该行',
+    thunder: '点击任意处炸毁周围'
+};
+
+/** 该格是否是当前技能的合法目标（用于棋盘上的高亮圈） */
+function isValidSkillTarget(r, c) {
+    if (!activeSkill || gameOver) return false;
+    const v = board[r][c];
+    const blocked = isCrater(r, c);
+    switch (activeSkill) {
+        case 'shield':
+            return v === currentPlayer && !shields[r][c];
+        case 'sacrifice':
+            return v === currentPlayer;
+        case 'sand':
+        case 'ink':
+        case 'convert':
+            return v === 3 - currentPlayer && !shields[r][c];
+        case 'crater':
+        case 'mine':
+        case 'bridge':
+        case 'meteor':
+        case 'stealth':
+            return v === 0 && !blocked;
+        default:
+            // silence / flood / thunder / double 点哪都行，不逐个高亮
+            return false;
+    }
+}
 // 隐形棋存在的大回合数（与服务端一致）
 const STEALTH_TURNS = 3;
 const canvas = document.getElementById('chessBoard');
@@ -1240,6 +1284,27 @@ function exitGame() {
     window.location.assign(startUrl.href);
 }
 
+/**
+ * 顶栏的「退出对局」：主动离开房间并回到开屏，不刷新页面。
+ * 对局还没结束才需要确认，避免误触把一盘棋点了。
+ */
+function leaveMatch() {
+    const inGame = mode === 'online' ? !!currentRoomId : !gameOver;
+    if (inGame && !window.confirm('确定要退出当前对局吗？')) return;
+
+    activeSkill = null;
+    bridgeFirst = null;
+
+    if (mode === 'online' && currentRoomId) {
+        socket.emit('leaveRoom');
+    }
+
+    clearSavedSession();
+    backToStartScreen();
+    document.getElementById('gameResult').hidden = true;
+    setStatus('已退出对局，可以重新创建或加入房间');
+}
+
 function resetLocalGame(askLoadout = true) {
     document.getElementById('gameResult').hidden = true;
     board = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
@@ -1345,7 +1410,14 @@ function updateTurnHint() {
         action = '⚡ 天涯海角·第二子 —— 需距第一子 ≥4 格，且不可绝杀';
     } else if (activeSkill) {
         const sk = SKILLS.find((s) => s.id === activeSkill);
-        action = `已选【${sk ? sk.name : activeSkill}】—— 请点击棋盘目标，或再点技能取消`;
+        if (activeSkill === 'bridge') {
+            action = bridgeFirst
+                ? `🌉 第一道门已放 [${coordStr(bridgeFirst.r, bridgeFirst.c)}] —— 请放置第二道（不可相邻）`
+                : '🌉 请点击第一个空位，放下第一道传送门';
+        } else {
+            const hint = SKILL_TARGET_HINT[activeSkill];
+            action = `已选【${sk ? sk.name : activeSkill}】—— ${hint || '请点击棋盘目标'}，或再点技能取消`;
+        }
     } else if (!currentRoomId && mode === 'online') {
         action = '请先创建随机房，或输入好友的房间码加入';
     } else if (mine) {
@@ -1400,6 +1472,7 @@ function selectSkill(player, skillId) {
         }
     }
     updateUI();
+    drawBoard();   // 选中/取消技能都要重绘，才能刷新目标高亮
 }
 
 function drawBoard() {
@@ -1567,6 +1640,18 @@ function drawBoard() {
                 ctx.strokeStyle = '#fe640b'; ctx.lineWidth = 2;
                 ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.stroke();
             }
+            // 选中技能时，把可点击的目标标出来，省得玩家瞎点
+            if (activeSkill && isValidSkillTarget(r, c)) {
+                ctx.strokeStyle = 'rgba(52, 127, 240, 0.85)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(x, y, board[r][c] ? 20 : 9, 0, Math.PI * 2);
+                ctx.stroke();
+                if (!board[r][c]) {
+                    ctx.fillStyle = 'rgba(52, 127, 240, 0.28)';
+                    ctx.fill();
+                }
+            }
             ctx.restore();
         }
     }
@@ -1599,7 +1684,8 @@ canvas.addEventListener('click', (e) => {
         if (usingBridge) {
             if (!bridgeFirst) {
                 bridgeFirst = { r, c };
-                setStatus('🌉 已选第一个传送门，请点击第二个空位（不可相邻）');
+                setStatus(`🌉 已放置第一道传送门 [${coordStr(r, c)}]，请放置第二道（不可相邻）`);
+                playSound('click');
             } else {
                 bridgeFirst = null;
                 activeSkill = null;
@@ -1608,6 +1694,7 @@ canvas.addEventListener('click', (e) => {
             activeSkill = null;
         }
         updateUI();
+        drawBoard();   // 立即清掉目标高亮，不用等服务端回来
     } else {
         if (mode === 'pve' && currentPlayer === 2) return;
         handleLocalAction(r, c);
@@ -1789,7 +1876,8 @@ function handleLocalAction(r, c) {
         if (!bridgeFirst) {
             bridgeFirst = { r, c };
             drawBoard();
-            return setStatus(`🌉 已选定第一个传送门 [${pos}]，请点击第二个空位`);
+            playSound('click');
+            return setStatus(`🌉 已放置第一道传送门 [${pos}]，请放置第二道（不可相邻）`);
         }
         const first = bridgeFirst;
         if (first.r === r && first.c === c) return setStatus('❌ 两个传送门不能在同一格！');
@@ -1805,7 +1893,7 @@ function handleLocalAction(r, c) {
             text: `${pTag} 架起【🌉鹊桥相会】：${coordStr(first.r, first.c)} ⇄ [${pos}]，2 回合内视为相邻！`,
         });
         playSound('skill'); drawBoard(); updateUI();
-        return setStatus('🌉 鹊桥已架起！2 回合内两门视为相邻');
+        return setStatus(`🌉 鹊桥架成！${coordStr(first.r, first.c)} ⇄ [${pos}]，2 回合内视为相邻`);
     }
 
     if (activeSkill === 'meteor') {

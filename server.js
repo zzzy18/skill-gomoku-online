@@ -651,6 +651,10 @@ io.on('connection', (socket) => {
         const enemyName = enemy === 1 ? '黑方' : '白方';
         const pos = coordStr(r, c);
 
+        // 普通落子说明本回合结束，之前没点完的「鹊桥第一点」作废，
+        // 否则下一个回合会被误当成第二次点击。
+        if (!skill && socket.bridgeFirst) socket.bridgeFirst = null;
+
         // 1. 指向性技能处理
         if (skill && !s.skillUsedThisTurn && s.doubleStep === 0) {
             // 服务端权威校验：装备过 / 灵力够 / 未被沉默。
@@ -884,10 +888,10 @@ io.on('connection', (socket) => {
                 const first = socket.bridgeFirst;
                 socket.bridgeFirst = null;
                 if (first.r === r && first.c === c) {
-                    return socket.emit('errMsg', '❌ 两个传送门不能在同一格！');
+                    return socket.emit('errMsg', '❌ 两个传送门不能在同一格，请重新选择鹊桥');
                 }
                 if (Math.abs(first.r - r) <= 1 && Math.abs(first.c - c) <= 1) {
-                    return socket.emit('errMsg', '❌ 两个传送门不能相邻！');
+                    return socket.emit('errMsg', '❌ 两个传送门不能相邻，请重新选择鹊桥');
                 }
 
                 const p1 = coordStr(first.r, first.c);

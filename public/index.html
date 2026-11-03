@@ -1079,7 +1079,12 @@ socket.on('newLog', (entry) => {
     if (mode === 'online') appendLogItem(entry);
 });
 
-socket.on('errMsg', (msg) => setStatus(msg));
+socket.on('errMsg', (msg) => {
+    setStatus(msg);
+    // 鹊桥第一点被拒（比如点到了有子的格子）时，本地计数要跟着回退，
+    // 否则下一次点击会被误当成“第二点”，和服务端的等待状态对不上。
+    if (activeSkill === 'bridge' && bridgeFirst) bridgeFirst = null;
+});
 socket.on('sound', (type) => playSound(type));
 
 socket.on('connect', () => {
@@ -1577,8 +1582,23 @@ canvas.addEventListener('click', (e) => {
 
     if (mode === 'online') {
         if (myRole !== currentPlayer) return setStatus('⏳ 请等待对手行动...');
+
+        // 鹊桥要连点两次，第一次不能把技能取消掉，
+        // 否则第二次点击发出去的 skill 是 null，服务端会按普通落子处理。
+        const usingBridge = activeSkill === 'bridge';
         socket.emit('boardAction', { r, c, skill: activeSkill });
-        activeSkill = null;
+
+        if (usingBridge) {
+            if (!bridgeFirst) {
+                bridgeFirst = { r, c };
+                setStatus('🌉 已选第一个传送门，请点击第二个空位（不可相邻）');
+            } else {
+                bridgeFirst = null;
+                activeSkill = null;
+            }
+        } else {
+            activeSkill = null;
+        }
         updateUI();
     } else {
         if (mode === 'pve' && currentPlayer === 2) return;

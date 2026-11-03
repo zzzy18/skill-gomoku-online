@@ -1462,10 +1462,23 @@ function drawBoard() {
             if (stealths[r][c]) ctx.globalAlpha = 0.45;
             if (stoneTexture.complete && stoneTexture.naturalWidth > 0) {
                 // 每块采样区含柔和接触阴影；棋子实体中心对应交点。
+                //
+                // 坐标必须以「原设计尺寸 1774×887」为基准再按实际图片尺寸等比换算。
+                // 这里写死 115/940/720 会让图片一旦被压缩（比如 1024×512）就采样越界：
+                // 白子区 940+720=1660 直接超出宽度 → 整块空白，白子看不见；
+                // 黑子区纵向超出 → 把邻近内容也框进来，看起来像落了两颗。
+                const texW = stoneTexture.naturalWidth;
+                const texH = stoneTexture.naturalHeight;
+                const kx = texW / 1774;
+                const ky = texH / 887;
+
                 ctx.imageSmoothingEnabled = true;
                 ctx.imageSmoothingQuality = 'high';
-                ctx.drawImage(stoneTexture, p === 1 ? 115 : 940, 75, 720, 720,
-                    x - 18, y - 18, 36, 36);
+                ctx.drawImage(
+                    stoneTexture,
+                    (p === 1 ? 115 : 940) * kx, 75 * ky, 720 * kx, 720 * ky,
+                    x - 18, y - 18, 36, 36
+                );
             } else {
                 // 贴图加载期间仍可立即落子。
                 ctx.beginPath(); ctx.arc(x, y, 15, 0, Math.PI * 2);

@@ -34,6 +34,9 @@ const SKILL_DEFS = {
     mine:    { cost: 2, type: 'instant' },   // 草木皆兵
     silence: { cost: 2, type: 'instant' },   // 釜底抽薪
     ink:     { cost: 3, type: 'instant' },   // 墨染
+    bridge:  { cost: 3, type: 'instant' },   // 鹊桥相会
+    sacrifice:{ cost: 0, type: 'instant' },  // 苦肉计
+    meteor:  { cost: 2, type: 'action' },    // 陨石天降
     stealth: { cost: 2, type: 'action' },
     double:  { cost: 3, type: 'action' },
     convert: { cost: 4, type: 'action' },
@@ -110,6 +113,7 @@ function createInitialState() {
         mines: [],        // { r, c, owner } 诡雷，敌方不可见
         silenced: 0,      // 被沉默的角色，0 表示无
         inks: [],         // { r, c, owner, turns } 墨染标记
+        portals: [],      // [{ a:{r,c}, b:{r,c}, owner, turns }] 鹊桥传送门，全场最多一对
         expiredInks: [],  // 到期腐化的位置，广播时播报并清空
         expiredStealths: [], // 到期显形的隐身子，播报后清空
         statusText: '请选择 6 个技能装备，准备开局'
@@ -124,18 +128,64 @@ function addRoomLog(room, type, text, sender = '') {
     io.to(room.id).emit('newLog', entry);
 }
 
-function checkWin(board, r, c, player) {
+/** 把传送门对做成双向查找表：格子坐标 → 另一端坐标 */
+function buildPortalMap(portals) {
+    if (!Array.isArray(portals) || !portals.length) return null;
+    const map = new Map();
+    for (const p of portals) {
+        if (!p || !p.a || !p.b) continue;
+        map.set(p.a.r + ',' + p.a.c, p.b);
+        map.set(p.b.r + ',' + p.b.c, p.a);
+    }
+    return map;
+}
+
+/** 从 from 看向 to，是否沿 (dr,dc) 方向且在前面（含斜线） */
+function isAhead(dr, dc, fromR, fromC, toR, toC) {
+    const vr = toR - fromR, vc = toC - fromC;
+    if (vr === 0 && vc === 0) return false;
+    if (dr === 0) return vr === 0 && Math.sign(vc) === dc;
+    if (dc === 0) return vc === 0 && Math.sign(vr) === dr;
+    return Math.abs(vr) === Math.abs(vc) && Math.sign(vr) === dr && Math.sign(vc) === dc;
+}
+
+/**
+ * 沿一个方向数连续同色棋子。
+ * 遇到传送门就跳到另一端继续（只跳一次），
+ * 但要求另一端仍在同一条线的前方，否则视为断开——
+ * 两个门不在同一线上时不该把不相干的棋串起来。
+ */
+function walkCount(board, r, c, dr, dc, player, portalMap) {
+    let n = 0;
+    let nr = r + dr, nc = c + dc;
+    let jumped = false;
+
+    while (n < 4) {
+        if (nr < 0 || nr >= SIZE || nc < 0 || nc >= SIZE) break;
+
+        const link = portalMap && portalMap.get(nr + ',' + nc);
+        if (link && !jumped) {
+            if (!isAhead(dr, dc, nr, nc, link.r, link.c)) break;
+            jumped = true;
+            nr = link.r + dr;   // 门本身是空位通道，不计数
+            nc = link.c + dc;
+            continue;
+        }
+
+        if (board[nr][nc] !== player) break;
+        n++;
+        nr += dr; nc += dc;
+    }
+    return n;
+}
+
+function checkWin(board, r, c, player, portals) {
     const dirs = [[1,0], [0,1], [1,1], [1,-1]];
+    const portalMap = buildPortalMap(portals);
     for (let [dr, dc] of dirs) {
         let count = 1;
-        for (let i = 1; i < 5; i++) {
-            let nr = r + dr*i, nc = c + dc*i;
-            if (nr>=0 && nr<SIZE && nc>=0 && nc<SIZE && board[nr][nc]===player) count++; else break;
-        }
-        for (let i = 1; i < 5; i++) {
-            let nr = r - dr*i, nc = c - dc*i;
-            if (nr>=0 && nr<SIZE && nc>=0 && nc<SIZE && board[nr][nc]===player) count++; else break;
-        }
+        count += walkCount(board, r, c, dr, dc, player, portalMap);
+        count += walkCount(board, r, c, -dr, -dc, player, portalMap);
         if (count >= 5) return true;
     }
     return false;
@@ -143,6 +193,14 @@ function checkWin(board, r, c, player) {
 
 function isBlocked(craters, r, c) {
     return craters.some(cr => cr.r === r && cr.c === c);
+}
+
+/** 该格是否是传送门（门占住格子，不能再落子） */
+function portalAt(state, r, c) {
+    if (!Array.isArray(state.portals)) return false;
+    return state.portals.some((p) =>
+        (p.a.r === r && p.a.c === c) || (p.b.r === r && p.b.c === c)
+    );
 }
 
 /**
@@ -202,6 +260,15 @@ function broadcastRoom(roomId) {
         room.state.expiredInks = [];
     }
 
+    // 传送门到期播报
+    if (room.state.expiredPortals && room.state.expiredPortals.length) {
+        for (const p of room.state.expiredPortals) {
+            addRoomLog(room, 'sys',
+                `🌉 鹊桥 ${coordStr(p.a.r, p.a.c)} ⇄ ${coordStr(p.b.r, p.b.c)} 已消散`);
+        }
+        room.state.expiredPortals = [];
+    }
+
     for (const [socketId, role] of Object.entries(room.players)) {
         io.to(socketId).emit('syncState', {
             state: getClientState(room.state, role),
@@ -251,7 +318,7 @@ function nextTurn(state, gainMp = true) {
                 state.board[ink.r][ink.c] = ink.owner;
                 state.expiredInks = state.expiredInks || [];
                 state.expiredInks.push({ r: ink.r, c: ink.c, owner: ink.owner });
-                if (checkWin(state.board, ink.r, ink.c, ink.owner)) {
+                if (checkWin(state.board, ink.r, ink.c, ink.owner, state.portals)) {
                     state.gameOver = true;
                     state.statusText =
                         `🎉 ${ink.owner === 1 ? '黑方' : '白方'}通过【墨染】腐化敌子，五子连珠获胜！`;
@@ -260,6 +327,19 @@ function nextTurn(state, gainMp = true) {
             // 棋子已被清理/变色 → 墨染自然失效
         }
         state.inks = keep;
+    }
+
+    // 传送门计时：turns 初始为 3，本回合结束立刻 -1，
+    // 之后每切换一次回合 -1，归零即消失（约 2 个大回合）
+    if (Array.isArray(state.portals) && state.portals.length) {
+        for (const p of state.portals) p.turns--;
+        const expired = state.portals.filter((p) => p.turns <= 0);
+        if (expired.length) {
+            state.expiredPortals = (state.expiredPortals || []).concat(
+                expired.map((p) => ({ a: p.a, b: p.b }))
+            );
+        }
+        state.portals = state.portals.filter((p) => p.turns > 0);
     }
 
     state.currentPlayer = 3 - state.currentPlayer;
@@ -577,6 +657,9 @@ io.on('connection', (socket) => {
                     : '灵力不足';
                 return socket.emit('errMsg', '❌ ' + why);
             }
+
+            // 换成别的技能就丢掉「鹊桥第一点」，避免半截状态残留
+            if (skill !== 'bridge' && socket.bridgeFirst) socket.bridgeFirst = null;
             if (skill === 'sand' && s.mp[role] >= 2) {
                 if (s.board[r][c] !== enemy) return socket.emit('errMsg', '❌ 请选择敌方棋子！');
                 if (s.lastMove && s.lastMove.r === r && s.lastMove.c === c) return socket.emit('errMsg', '❌ 规则保护：不能吹走对方刚落下的棋子！');
@@ -611,7 +694,7 @@ io.on('connection', (socket) => {
                     const toPos = coordStr(target.nr, target.nc);
                     s.board[target.nr][target.nc] = enemy;
                     addRoomLog(room, 'skill', `${pTag} 对 [${pos}] 发动【🌪️飞沙走石】，敌子被吹偏至 [${toPos}]，原位留风眼！`);
-                    if (checkWin(s.board, target.nr, target.nc, enemy)) {
+                    if (checkWin(s.board, target.nr, target.nc, enemy, s.portals)) {
                         s.gameOver = true;
                         s.statusText = `😱 弄巧成拙！【飞沙走石】把${enemyName}的棋子吹成了五子连珠！${enemyName}获胜！`;
                         addRoomLog(room, 'win', `😱 借风成势！${enemyName}被吹歪的棋子直接连成五子获胜！`);
@@ -686,7 +769,7 @@ io.on('connection', (socket) => {
                 s.board[r][c] = role; s.stealths[r][c] = false;
                 s.mp[role] -= 4; s.lastMove = { r, c, player: role };
                 addRoomLog(room, 'skill', `${pTag} 发动【☯️乾坤挪移】将 [${pos}] 的敌子策反为己方！`);
-                if (checkWin(s.board, r, c, role)) {
+                if (checkWin(s.board, r, c, role, s.portals)) {
                     s.gameOver = true;
                     s.statusText = `🎉 ${pName}通过【乾坤挪移】绝杀获胜！`;
                     addRoomLog(room, 'win', `🎉 ${pTag} 通过【☯️乾坤挪移】完成五连绝杀获胜！`);
@@ -767,6 +850,108 @@ io.on('connection', (socket) => {
                 io.to(socket.roomId).emit('sound', 'skill');
                 return broadcastRoom(socket.roomId);
             }
+            if (skill === 'sacrifice') {
+                if (s.board[r][c] !== role) return socket.emit('errMsg', '❌ 请选择己方棋子销毁！');
+                s.board[r][c] = 0;
+                s.stealths[r][c] = false;
+                s.shields[r][c] = false;
+                const gained = Math.min(MAX_MP, s.mp[role] + 2) - s.mp[role];
+                s.mp[role] += gained;
+                s.skillUsedThisTurn = true;
+                s.statusText = `🩸 ${pName}牺牲一枚棋子，换得 ${gained} 点灵力！请继续落子`;
+                addRoomLog(room, 'skill',
+                    `${pTag} 发动【🩸苦肉计】，销毁 [${pos}] 的己方棋子，灵力 +${gained}`);
+                io.to(socket.roomId).emit('sound', 'skill');
+                return broadcastRoom(socket.roomId);
+            }
+            if (skill === 'bridge') {
+                // 两次点击选两点：第一次记在 socket 上，第二次才真正生效
+                if (s.board[r][c] !== 0 || isBlocked(s.craters, r, c)) {
+                    return socket.emit('errMsg', '❌ 传送门必须放在空位上！');
+                }
+                if (portalAt(s, r, c)) return socket.emit('errMsg', '❌ 这里已经有传送门了！');
+
+                if (!socket.bridgeFirst) {
+                    socket.bridgeFirst = { r, c };
+                    s.statusText = `🌉 已选定第一个传送门 [${pos}]，请点击第二个空位`;
+                    return broadcastRoom(socket.roomId);
+                }
+
+                const first = socket.bridgeFirst;
+                socket.bridgeFirst = null;
+                if (first.r === r && first.c === c) {
+                    return socket.emit('errMsg', '❌ 两个传送门不能在同一格！');
+                }
+                if (Math.abs(first.r - r) <= 1 && Math.abs(first.c - c) <= 1) {
+                    return socket.emit('errMsg', '❌ 两个传送门不能相邻！');
+                }
+
+                const p1 = coordStr(first.r, first.c);
+                // 全场只保留一对，新的覆盖旧的
+                s.portals = [{ a: first, b: { r, c }, owner: role, turns: 3 }];
+                s.mp[role] -= 3;
+                s.skillUsedThisTurn = true;
+                s.statusText = `🌉 ${pName}架起鹊桥：${p1} ⇄ ${pos}，2 回合内视为相邻`;
+                addRoomLog(room, 'skill',
+                    `${pTag} 发动【🌉鹊桥相会】：${p1} 与 ${pos} 相连，2 回合内视为相邻！`);
+                io.to(socket.roomId).emit('sound', 'skill');
+                return broadcastRoom(socket.roomId);
+            }
+            if (skill === 'meteor') {
+                if (s.board[r][c] !== 0 || isBlocked(s.craters, r, c)) {
+                    return socket.emit('errMsg', '❌ 陨石需要砸在空位上！');
+                }
+                if (portalAt(s, r, c)) return socket.emit('errMsg', '❌ 这里被传送门占着！');
+
+                s.board[r][c] = role;
+                s.stealths[r][c] = false;
+                s.shields[r][c] = false;
+
+                // 冲击波：周围 8 格的无护盾棋子向外震退 1 格
+                let pushed = 0, stuck = 0;
+                for (let dr = -1; dr <= 1; dr++) {
+                    for (let dc = -1; dc <= 1; dc++) {
+                        if (dr === 0 && dc === 0) continue;
+                        const nr = r + dr, nc = c + dc;
+                        if (nr < 0 || nr >= SIZE || nc < 0 || nc >= SIZE) continue;
+                        if (s.board[nr][nc] === 0) continue;
+                        if (s.shields[nr][nc]) { stuck++; continue; }
+
+                        // 震退目标 = 中心 + 2 倍方向
+                        const tr = r + dr * 2, tc = c + dc * 2;
+                        const blocked = tr < 0 || tr >= SIZE || tc < 0 || tc >= SIZE ||
+                            s.board[tr][tc] !== 0 || isBlocked(s.craters, tr, tc) || portalAt(s, tr, tc);
+                        if (blocked) { stuck++; continue; }
+
+                        s.board[tr][tc] = s.board[nr][nc];
+                        s.stealths[tr][tc] = s.stealths[nr][nc];
+                        s.shields[tr][tc] = false;
+                        s.board[nr][nc] = 0;
+                        s.stealths[nr][nc] = false;
+                        pushed++;
+                    }
+                }
+
+                s.mp[role] -= 2;
+                const won = checkWin(s.board, r, c, role, s.portals);
+                s.statusText = `☄️ ${pName}召唤陨石砸在 [${pos}]！震退 ${pushed} 枚棋子` +
+                    (stuck ? `，${stuck} 枚被挡住` : '');
+                addRoomLog(room, 'skill',
+                    `${pTag} 在 [${pos}] 落下【☄️陨石天降】，震退 ${pushed} 枚棋子` +
+                    (stuck ? `，${stuck} 枚无法震退` : ''));
+
+                if (won) {
+                    s.gameOver = true;
+                    s.statusText = `🎉 ${pName}借助陨石冲击波完成五连，获胜！`;
+                    addRoomLog(room, 'win', `🎉 ${pTag} 的【☄️陨石天降】直接砸出五连，拿下胜利！`);
+                    io.to(socket.roomId).emit('sound', 'win');
+                    return broadcastRoom(socket.roomId);
+                }
+
+                nextTurn(s, true);
+                io.to(socket.roomId).emit('sound', 'skill');
+                return broadcastRoom(socket.roomId);
+            }
         }
 
         // 2. 踩中敌方隐身子判定
@@ -782,6 +967,9 @@ io.on('connection', (socket) => {
 
         if (s.board[r][c] !== 0 || isBlocked(s.craters, r, c)) {
             return socket.emit('errMsg', '❌ 该位置已有棋子、处于风眼或被路障封印！');
+        }
+        if (portalAt(s, r, c)) {
+            return socket.emit('errMsg', '❌ 这里被传送门占着，换个位置');
         }
 
         // 自己的雷占着位置，别让棋子压上去
@@ -810,7 +998,7 @@ io.on('connection', (socket) => {
         // 3. 【天涯海角】第一子与第二子判定
         if (s.doubleStep === 1) {
             s.board[r][c] = role;
-            if (checkWin(s.board, r, c, role)) {
+            if (checkWin(s.board, r, c, role, s.portals)) {
                 s.board[r][c] = 0;
                 return socket.emit('errMsg', '⚠️ 【天涯海角】期间不可直接连成五子获胜！');
             }
@@ -829,7 +1017,7 @@ io.on('connection', (socket) => {
                 return socket.emit('errMsg', `❌ 距离太近（当前仅隔 ${dist} 格）！【天涯海角】第二子必须下在 4 格以外！`);
             }
             s.board[r][c] = role;
-            if (checkWin(s.board, r, c, role)) {
+            if (checkWin(s.board, r, c, role, s.portals)) {
                 s.board[r][c] = 0;
                 return socket.emit('errMsg', '⚠️ 【天涯海角】第二子不可直接绝杀！只能做局或远端防守。');
             }
@@ -858,7 +1046,7 @@ io.on('connection', (socket) => {
         s.board[r][c] = role;
         s.lastMove = { r, c, player: role };
 
-        if (checkWin(s.board, r, c, role)) {
+        if (checkWin(s.board, r, c, role, s.portals)) {
             s.stealths[r][c] = false;
             s.gameOver = true;
             s.statusText = `🎉 恭喜！${pName}五子连珠获胜！`;

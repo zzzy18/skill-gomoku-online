@@ -528,6 +528,8 @@
                     <li><span class="rule-tag tag-free">2⚡</span><strong>💣 草木皆兵：</strong>在空位<strong>秘密埋下诡雷</strong>（对手看不见）。敌方在雷<strong>自身或周围 1 格</strong>落子即引爆：这次落子作废，原地化为持续 2 回合的封印弹坑。雷是一次性的。</li>
                     <li><span class="rule-tag tag-free">2⚡</span><strong>⛓️ 釜底抽薪：</strong>削减敌方 <strong>1 点灵力</strong>，并让敌方<strong>下一个回合陷入沉默</strong>——只能普通落子，一个技能都放不出来。</li>
                     <li><span class="rule-tag tag-free">3⚡</span><strong>☣️ 墨染：</strong>给敌方 1 枚棋子染上墨毒，进入 <strong>3 步倒计时</strong>。到期时若这枚棋子还在原位，会<strong>腐化变成你的颜色</strong>；对手可以用技能把它清掉来化解。</li>
+                    <li><span class="rule-tag tag-free">3⚡</span><strong>🌉 鹊桥相会：</strong>在任意两个<strong>不相邻</strong>的空位架起传送门，持续 2 大回合。期间这两个格子<strong>在连珠判定时视为相邻</strong>——隔着大半张棋盘也能连成五。</li>
+                    <li><span class="rule-tag tag-free">0⚡</span><strong>🩸 苦肉计：</strong>销毁己方 1 枚棋子，换取 <strong>2 点灵力</strong>。用子力换资源，劣势时憋大招的救命稻草。</li>
                 </ul>
             </div>
 
@@ -538,6 +540,7 @@
                     <li><span class="rule-tag tag-end">3⚡</span><strong>⚡ 天涯海角：</strong>连续落 2 颗子。第二子必须距第一子<strong>至少 4 格以外</strong>（红色禁区框外），且<strong>两子均不可直接连五获胜</strong>。</li>
                     <li><span class="rule-tag tag-end">4⚡</span><strong>☯️ 乾坤挪移：</strong>将敌方 1 枚无护盾棋子<strong>直接转化为己方颜色</strong>，若因此连五可直接绝杀获胜！</li>
                     <li><span class="rule-tag tag-end">5⚡</span><strong>🌩️ 九天雷劫：</strong>炸毁指定中心 <strong>3×3 区域内所有无护盾棋子（不分敌我）</strong>，随后结束回合。</li>
+                    <li><span class="rule-tag tag-end">2⚡</span><strong>☄️ 陨石天降：</strong>在空位砸下一枚己方棋子，冲击波把周围 8 格内的<strong>无护盾棋子向外震退 1 格</strong>（后方被占或贴边则推不动）。冲击波落定后若形成五连，<strong>直接获胜</strong>。</li>
                 </ul>
             </div>
         </div>
@@ -683,6 +686,9 @@ const SKILLS = [
     { id: 'double', name: '⚡ 天涯海角', cost: 3, desc: '连落2子，两子距离需≥4格，且不可直接绝杀' },
     { id: 'flood', name: '🌊 水淹七军', cost: 3, desc: '冲散指定一整行的随机2枚无护盾棋子' },
     { id: 'ink', name: '☣️ 墨染', cost: 3, desc: '标记敌方1枚棋子，3步内不清除将腐化为己方' },
+    { id: 'bridge', name: '🌉 鹊桥相会', cost: 3, desc: '两个空位放传送门，2回合内视为相邻，可跨空五连' },
+    { id: 'sacrifice', name: '🩸 苦肉计', cost: 0, desc: '销毁己方1枚棋子，换取2点灵力' },
+    { id: 'meteor', name: '☄️ 陨石天降', cost: 2, desc: '砸下棋子，周围8格无护盾棋子向外震退1格' },
     { id: 'convert', name: '☯️ 乾坤挪移', cost: 4, desc: '将敌方1枚无护盾棋子变己方并结束回合' },
     { id: 'thunder', name: '🌩️ 九天雷劫', cost: 5, desc: '炸毁3x3区域内所有无护盾棋子，直接结束' }
 ];
@@ -761,6 +767,8 @@ let localLoadouts = { 1: null, 2: null };
 let mines = [];                         // 诡雷（只含自己可见的）
 let silenced = 0;                       // 被沉默的角色
 let inks = [];                          // 墨染标记 { r, c, owner, turns }
+let portals = [];                       // 鹊桥传送门 [{ a, b, owner, turns }]
+let bridgeFirst = null;                 // 本地点选鹊桥时的第一个门
 
 const stoneTexture = new Image();
 stoneTexture.onload = () => { if (board.length === SIZE) drawBoard(); };
@@ -984,6 +992,7 @@ socket.on('syncState', ({ state, role, roomId, onlineCount, logs }) => {
     mines = state.mines || [];
     silenced = state.silenced || 0;
     inks = state.inks || [];
+    portals = state.portals || [];
 
     finishSetup();
 
@@ -1188,6 +1197,7 @@ function resetLocalGame(askLoadout = true) {
     stealths = Array.from({ length: SIZE }, () => Array(SIZE).fill(false));
     craters = []; currentPlayer = 1; mp = { 1: 1, 2: 2 };
     mines = []; inks = []; silenced = 0;
+    portals = []; bridgeFirst = null;
     activeSkill = null; skillUsedThisTurn = false; doubleStep = 0; firstDoubleMove = null;
     lastMove = null; gameOver = false;
     document.getElementById('p1-name').innerText = '黑方 (玩家1)';
@@ -1303,6 +1313,9 @@ function selectSkill(player, skillId) {
     if (player !== currentPlayer || gameOver) return;
     if (mode === 'online' && myRole !== currentPlayer) return;
 
+    // 换了技能就把没选完的「鹊桥第一点」丢掉
+    if (activeSkill !== skillId) bridgeFirst = null;
+
     if (activeSkill === skillId) {
         activeSkill = null;
         setStatus('已取消技能，请正常落子');
@@ -1325,6 +1338,9 @@ function selectSkill(player, skillId) {
                 mine: '💣 [2⚡] 点击任意空位秘密埋雷，敌子在周围1格落子即引爆（本回合仍可继续落子）',
                 silence: '⛓️ [2⚡] 点击棋盘任意处发动：削敌方1点灵力，敌方下回合只能普通落子',
                 ink: '☣️ [3⚡] 点击敌方1枚棋子施加墨染，3步内不清除将腐化为己方',
+                bridge: '🌉 [3⚡] 依次点击两个空位架桥（不可相邻），2回合内两门视为相邻',
+                sacrifice: '🩸 [0⚡] 点击己方1枚棋子销毁，换取2点灵力（本回合仍可继续落子）',
+                meteor: '☄️ [2⚡] 点击空位砸下陨石，周围8格无护盾棋子向外震退1格',
                 stealth: '🕵️ 点击空位落下一枚隐身棋子',
                 flood: '🌊 点击任意位置，冲散该行最多2枚无护盾棋子',
                 convert: '☯️ 点击敌方1枚无护盾棋子策反',
@@ -1375,6 +1391,46 @@ function drawBoard() {
         ctx.beginPath(); ctx.arc(x, y - 13, 2, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
     });
+
+    // 鹊桥传送门：两门之间画一条淡虚线，再各自画光环
+    if ((portals || []).length) {
+        portals.forEach((p) => {
+            const ax = PADDING + p.a.c * CELL, ay = PADDING + p.a.r * CELL;
+            const bx = PADDING + p.b.c * CELL, by = PADDING + p.b.r * CELL;
+
+            ctx.save();
+            ctx.strokeStyle = 'rgba(155, 89, 182, 0.35)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 6]);
+            ctx.beginPath();
+            ctx.moveTo(ax, ay);
+            ctx.lineTo(bx, by);
+            ctx.stroke();
+            ctx.restore();
+
+            [p.a, p.b].forEach((cell) => {
+                const x = PADDING + cell.c * CELL, y = PADDING + cell.r * CELL;
+                ctx.save();
+                const g = ctx.createRadialGradient(x, y, 2, x, y, 16);
+                g.addColorStop(0, 'rgba(155, 89, 182, 0.5)');
+                g.addColorStop(1, 'rgba(155, 89, 182, 0)');
+                ctx.fillStyle = g;
+                ctx.beginPath(); ctx.arc(x, y, 16, 0, Math.PI * 2); ctx.fill();
+
+                ctx.strokeStyle = '#9b59b6'; ctx.lineWidth = 2.4;
+                ctx.beginPath(); ctx.arc(x, y, 12, 0, Math.PI * 2); ctx.stroke();
+                ctx.strokeStyle = 'rgba(155, 89, 182, 0.5)'; ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.stroke();
+
+                ctx.fillStyle = '#9b59b6';
+                ctx.font = 'bold 9px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(String(p.turns), x, y - 17);
+                ctx.restore();
+            });
+        });
+    }
 
     craters.forEach(cr => {
         const x = PADDING + cr.c * CELL, y = PADDING + cr.r * CELL;
@@ -1473,6 +1529,11 @@ canvas.addEventListener('click', (e) => {
 });
 
 function isCrater(r, c) { return craters.some(cr => cr.r === r && cr.c === c); }
+/** 该格是否被传送门占住 */
+function isPortal(r, c) {
+    return (portals || []).some(p =>
+        (p.a.r === r && p.a.c === c) || (p.b.r === r && p.b.c === c));
+}
 
 // 护盾：只挡一次攻击，挡下后消耗（与服务端 absorbHit 保持一致）
 function absorbHit(r, c) {
@@ -1624,6 +1685,86 @@ function handleLocalAction(r, c) {
         return setStatus('☣️ 墨染已施加！请继续落子');
     }
 
+    if (activeSkill === 'sacrifice') {
+        if (board[r][c] !== currentPlayer) return setStatus('❌ 请选择己方棋子销毁！');
+        board[r][c] = 0; stealths[r][c] = false; shields[r][c] = false;
+        const gained = Math.min(MAX_MP, mp[currentPlayer] + 2) - mp[currentPlayer];
+        mp[currentPlayer] += gained;
+        skillUsedThisTurn = true; activeSkill = null;
+        appendLogItem({ type: 'skill', text: `${pTag} 发动【🩸苦肉计】，销毁 [${pos}] 的己方棋子，灵力 +${gained}` });
+        playSound('skill'); drawBoard(); updateUI();
+        return setStatus(`🩸 苦肉计生效，灵力 +${gained}！请继续落子`);
+    }
+
+    if (activeSkill === 'bridge') {
+        if (board[r][c] !== 0 || isCrater(r, c)) return setStatus('❌ 传送门必须放在空位！');
+        if (isPortal(r, c)) return setStatus('❌ 这里已经有传送门了！');
+
+        if (!bridgeFirst) {
+            bridgeFirst = { r, c };
+            drawBoard();
+            return setStatus(`🌉 已选定第一个传送门 [${pos}]，请点击第二个空位`);
+        }
+        const first = bridgeFirst;
+        if (first.r === r && first.c === c) return setStatus('❌ 两个传送门不能在同一格！');
+        if (Math.abs(first.r - r) <= 1 && Math.abs(first.c - c) <= 1) {
+            return setStatus('❌ 两个传送门不能相邻！');
+        }
+
+        bridgeFirst = null;
+        portals = [{ a: first, b: { r, c }, owner: currentPlayer, turns: 3 }];
+        mp[currentPlayer] -= 3; skillUsedThisTurn = true; activeSkill = null;
+        appendLogItem({
+            type: 'skill',
+            text: `${pTag} 架起【🌉鹊桥相会】：${coordStr(first.r, first.c)} ⇄ [${pos}]，2 回合内视为相邻！`,
+        });
+        playSound('skill'); drawBoard(); updateUI();
+        return setStatus('🌉 鹊桥已架起！2 回合内两门视为相邻');
+    }
+
+    if (activeSkill === 'meteor') {
+        if (board[r][c] !== 0 || isCrater(r, c)) return setStatus('❌ 陨石需要砸在空位上！');
+        if (isPortal(r, c)) return setStatus('❌ 这里被传送门占着！');
+
+        board[r][c] = currentPlayer;
+        stealths[r][c] = false; shields[r][c] = false;
+
+        let pushed = 0, stuck = 0;
+        for (let dr = -1; dr <= 1; dr++) {
+            for (let dc = -1; dc <= 1; dc++) {
+                if (dr === 0 && dc === 0) continue;
+                const nr = r + dr, nc = c + dc;
+                if (nr < 0 || nr >= SIZE || nc < 0 || nc >= SIZE) continue;
+                if (board[nr][nc] === 0) continue;
+                if (shields[nr][nc]) { stuck++; continue; }
+
+                const tr = r + dr * 2, tc = c + dc * 2;
+                const blocked = tr < 0 || tr >= SIZE || tc < 0 || tc >= SIZE ||
+                    board[tr][tc] !== 0 || isCrater(tr, tc) || isPortal(tr, tc);
+                if (blocked) { stuck++; continue; }
+
+                board[tr][tc] = board[nr][nc];
+                stealths[tr][tc] = stealths[nr][nc];
+                shields[tr][tc] = false;
+                board[nr][nc] = 0; stealths[nr][nc] = false;
+                pushed++;
+            }
+        }
+
+        mp[currentPlayer] -= 2; activeSkill = null;
+        appendLogItem({
+            type: 'skill',
+            text: `${pTag} 在 [${pos}] 落下【☄️陨石天降】，震退 ${pushed} 枚棋子` +
+                (stuck ? `，${stuck} 枚无法震退` : ''),
+        });
+        playSound('skill'); drawBoard(); updateUI();
+
+        if (checkWin(r, c, currentPlayer)) {
+            return endLocalGame(`🎉 ${currentPlayer === 1 ? '黑方' : '白方'}借助陨石冲击波完成五连获胜！`);
+        }
+        return nextLocalTurn(true);
+    }
+
     if (board[r][c] === enemy && stealths[r][c]) {
         stealths[r][c] = false; playSound('skill'); drawBoard();
         appendLogItem({
@@ -1636,6 +1777,7 @@ function handleLocalAction(r, c) {
     }
 
     if (board[r][c] !== 0 || isCrater(r, c)) return setStatus('❌ 该位置已有棋子、处于风眼或被路障封印！');
+    if (isPortal(r, c)) return setStatus('❌ 这里被传送门占着，换个位置');
 
     // 诡雷：对方在雷周围 1 格内落子即引爆
     const mineHit = mines.findIndex(
@@ -1734,8 +1876,20 @@ function nextLocalTurn(gainMp) {
         inks = keep;
     }
 
+    // 传送门计时：归零即消失
+    if (portals.length) {
+        portals.forEach(p => p.turns--);
+        const gone = portals.filter(p => p.turns <= 0);
+        gone.forEach(p => appendLogItem({
+            type: 'sys',
+            text: `🌉 鹊桥 ${coordStr(p.a.r, p.a.c)} ⇄ ${coordStr(p.b.r, p.b.c)} 已消散`,
+        }));
+        portals = portals.filter(p => p.turns > 0);
+    }
+
     currentPlayer = 3 - currentPlayer;
     activeSkill = null; doubleStep = 0; firstDoubleMove = null;
+    bridgeFirst = null;
 
     // 沉默只作用于被沉默者的那一个回合
     if (silenced && silenced !== currentPlayer) silenced = 0;
@@ -1753,12 +1907,56 @@ function endLocalGame(msg) {
     updateUI(); drawBoard(); setStatus(msg); showGameResult(msg);
 }
 
+// ── 连珠判定（含鹊桥传送门）──
+function buildPortalMap(list) {
+    if (!Array.isArray(list) || !list.length) return null;
+    const map = new Map();
+    for (const p of list) {
+        if (!p || !p.a || !p.b) continue;
+        map.set(p.a.r + ',' + p.a.c, p.b);
+        map.set(p.b.r + ',' + p.b.c, p.a);
+    }
+    return map;
+}
+
+/** to 是否沿 (dr,dc) 方向、在 from 的前方（含斜线） */
+function isAhead(dr, dc, fromR, fromC, toR, toC) {
+    const vr = toR - fromR, vc = toC - fromC;
+    if (vr === 0 && vc === 0) return false;
+    if (dr === 0) return vr === 0 && Math.sign(vc) === dc;
+    if (dc === 0) return vc === 0 && Math.sign(vr) === dr;
+    return Math.abs(vr) === Math.abs(vc) && Math.sign(vr) === dr && Math.sign(vc) === dc;
+}
+
+/** 沿方向数同色棋子，遇到传送门跳到另一端继续（只跳一次） */
+function walkCount(r, c, dr, dc, player, portalMap) {
+    let n = 0;
+    let nr = r + dr, nc = c + dc;
+    let jumped = false;
+    while (n < 4) {
+        if (nr < 0 || nr >= SIZE || nc < 0 || nc >= SIZE) break;
+        const link = portalMap && portalMap.get(nr + ',' + nc);
+        if (link && !jumped) {
+            if (!isAhead(dr, dc, nr, nc, link.r, link.c)) break;
+            jumped = true;
+            nr = link.r + dr;
+            nc = link.c + dc;
+            continue;
+        }
+        if (board[nr][nc] !== player) break;
+        n++;
+        nr += dr; nc += dc;
+    }
+    return n;
+}
+
 function checkWin(r, c, player) {
     const dirs = [[1,0], [0,1], [1,1], [1,-1]];
+    const portalMap = buildPortalMap(portals);
     for (let [dr, dc] of dirs) {
         let count = 1;
-        for (let i = 1; i < 5; i++) { let nr = r+dr*i, nc = c+dc*i; if (nr>=0 && nr<SIZE && nc>=0 && nc<SIZE && board[nr][nc]===player) count++; else break; }
-        for (let i = 1; i < 5; i++) { let nr = r-dr*i, nc = c-dc*i; if (nr>=0 && nr<SIZE && nc>=0 && nc<SIZE && board[nr][nc]===player) count++; else break; }
+        count += walkCount(r, c, dr, dc, player, portalMap);
+        count += walkCount(r, c, -dr, -dc, player, portalMap);
         if (count >= 5) return true;
     }
     return false;

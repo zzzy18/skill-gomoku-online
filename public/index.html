@@ -265,7 +265,18 @@
             border: 1px solid #393552;
         }
         /* 入口集中在棋盘，标题下不再占用两行状态空间 */
-        .status-banner, .turn-hint { display: none; }
+        .status-banner { display: none; }
+        /* 开屏时不显示工具条，进入对局后再出现（退出按钮也放在这里） */
+        body.pre-game .turn-hint { display: none; }
+        .turn-hint { position: relative; padding-right: 112px; }
+        .turn-exit {
+            position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+            padding: 5px 12px; border-radius: 8px; cursor: pointer;
+            font-size: 13px; font-family: inherit; white-space: nowrap;
+            background: #fff; color: #b03a3a; border: 1px solid #e8c8c8;
+            transition: 0.15s;
+        }
+        .turn-exit:hover { background: #fff2f2; border-color: #d99; }
 
         /* 手机端：棋盘优先，双方技能栏并排到下面，日志再往下 */
         @media (max-width: 920px) {
@@ -423,8 +434,14 @@
             <span class="badge" id="roleBadge" title="点击复制房间号" onclick="copyRoomId()">未入房</span>
         </div>
         <button class="ctrl-btn" onclick="handleReset()">🔄 重开</button>
-        <button class="ctrl-btn" onclick="leaveMatch()">🚪 退出对局</button>
         <button class="ctrl-btn rule-btn" onclick="toggleRules(true)">📖 规则说明</button>
+    </div>
+
+    <!-- 对局工具条：回合 / 操作提示 / 退出。开屏时隐藏 -->
+    <div class="turn-hint" id="turnHint">
+        <span class="turn-who" id="turnWho">⚫ 黑方回合</span>
+        <span class="turn-what" id="turnWhat">请落子，或选择技能</span>
+        <button class="turn-exit" onclick="leaveMatch()" title="离开当前对局">🚪 退出对局</button>
     </div>
 
     <div class="game-layout">
@@ -1345,11 +1362,20 @@ function resetLocalGame(askLoadout = true) {
     setStatus('黑方回合：请落子或发动技能');
 }
 
+// 最近一次 setStatus 的内容，工具条没有更重要的提示时就用它
+let lastStatusMsg = '';
+let lastStatusAt = 0;   // 用于保证即时反馈不会被 updateUI 立刻盖掉
+
 function setStatus(msg) {
+    lastStatusMsg = msg;
+    lastStatusAt = Date.now();
     const status = document.getElementById('statusText');
     if (status) status.innerText = msg;
     const feedback = document.getElementById('roomFeedback');
     if (feedback) feedback.innerText = msg;
+    // 对局里没有 statusText，直接落到工具条上，保证操作反馈可见
+    const what = document.getElementById('turnWhat');
+    if (what) what.innerText = msg;
 }
 
 function updateUI() {
@@ -1392,7 +1418,7 @@ function updateTurnHint() {
 
     if (gameOver) {
         who.innerText = '🏁 对局结束';
-        what.innerText = '点击上方「🔄 重开」再来一局';
+        what.innerText = '本局已结束，可以再来一局或退出对局';
         el.className = 'turn-hint';
         return;
     }
@@ -1427,8 +1453,12 @@ function updateTurnHint() {
     }
 
     who.innerText = `${pName}回合`;
+    el.className = 'turn-hint' + (mine ? ' mine' : ' theirs');
+
+    // 刚有即时反馈（技能报错、操作结果）时先让它完整显示 1.2 秒，
+    // 否则 updateUI 会立刻把消息盖成常规提示，玩家根本来不及看。
+    if (Date.now() - lastStatusAt < 1200) return;
     what.innerText = action;
-    el.className = 'turn-hint' + (gameOver ? '' : mine ? ' mine' : ' theirs');
 }
 
 function selectSkill(player, skillId) {

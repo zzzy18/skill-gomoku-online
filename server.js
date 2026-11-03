@@ -221,6 +221,22 @@ function portalAt(state, r, c) {
 }
 
 /**
+ * 墨染标记绑的是「那枚棋子」，不是「那个格子」。
+ * 棋子被销毁 / 挪走 / 变色时必须把标记一起清掉，
+ * 否则玩家在同一位置补一枚新子会白白继承墨毒。
+ */
+function clearInkAt(state, r, c) {
+    if (!Array.isArray(state.inks) || !state.inks.length) return;
+    state.inks = state.inks.filter((k) => !(k.r === r && k.c === c));
+}
+
+/** 棋盘变动后兜底清理：坐标上没有棋子的墨染一律作废 */
+function pruneInks(state) {
+    if (!Array.isArray(state.inks) || !state.inks.length) return;
+    state.inks = state.inks.filter((k) => state.board[k.r][k.c] !== 0);
+}
+
+/**
  * 护盾：只抵挡一次攻击，随后消耗。
  *
  * 永久免疫会让【铁索连环】变成每回合白嫖的无敌（1费+每回合回1灵力），
@@ -323,6 +339,7 @@ function nextTurn(state, gainMp = true) {
 
     // 墨染计时：到期时若目标仍是敌子，腐化为施法者颜色
     if (Array.isArray(state.inks) && state.inks.length) {
+        pruneInks(state); // 棋子已经不在的标记先清掉
         const keep = [];
         for (const ink of state.inks) {
             ink.turns--;
@@ -721,6 +738,9 @@ io.on('connection', (socket) => {
                     }
                 }
 
+                // 墨染跟的是棋子：吹歪了就跟着走，吹散了才失效
+                const sandInkIdx = (s.inks || []).findIndex((k) => k.r === r && k.c === c);
+
                 s.board[r][c] = 0;
                 s.stealths[r][c] = false;
                 s.craters.push({ r, c, duration: 2, type: 'wind' });
@@ -731,6 +751,10 @@ io.on('connection', (socket) => {
                     const target = emptyNeighbors[Math.floor(Math.random() * emptyNeighbors.length)];
                     const toPos = coordStr(target.nr, target.nc);
                     s.board[target.nr][target.nc] = enemy;
+                    if (sandInkIdx >= 0) {
+                        s.inks[sandInkIdx].r = target.nr;
+                        s.inks[sandInkIdx].c = target.nc;
+                    }
                     addRoomLog(room, 'skill', `${pTag} 对 [${pos}] 发动【🌪️飞沙走石】，敌子被吹偏至 [${toPos}]，原位留风眼！`);
                     if (checkWin(s.board, target.nr, target.nc, enemy, s.portals)) {
                         s.gameOver = true;
@@ -741,6 +765,8 @@ io.on('connection', (socket) => {
                     }
                     s.statusText = `🌪️ ${pName}发动【飞沙走石】将敌子吹歪，原地留下风眼禁区！请继续落子`;
                 } else {
+                    // 周围没空位，棋子被彻底吹散，墨染跟着作废
+                    if (sandInkIdx >= 0) s.inks.splice(sandInkIdx, 1);
                     addRoomLog(room, 'skill', `${pTag} 对 [${pos}] 发动【🌪️飞沙走石】，周围无空位直接吹散！`);
                     s.statusText = `🌪️ 周围无空位，敌子被直接吹散，原地留下风眼禁区！请继续落子`;
                 }
@@ -782,6 +808,7 @@ io.on('connection', (socket) => {
                         blockedCount++;
                     } else {
                         s.board[r][col] = 0; s.stealths[r][col] = false;
+                        clearInkAt(s, r, col);
                     }
                 });
                 s.mp[role] -= 3; s.skillUsedThisTurn = true;
@@ -805,6 +832,8 @@ io.on('connection', (socket) => {
                 }
 
                 s.board[r][c] = role; s.stealths[r][c] = false;
+                // 棋子变成己方了，墨染失去意义
+                clearInkAt(s, r, c);
                 s.mp[role] -= 4; s.lastMove = { r, c, player: role };
                 addRoomLog(room, 'skill', `${pTag} 发动【☯️乾坤挪移】将 [${pos}] 的敌子策反为己方！`);
                 if (checkWin(s.board, r, c, role, s.portals)) {
@@ -828,6 +857,7 @@ io.on('connection', (socket) => {
                         if (s.board[nr][nc] === 0) continue;
                         if (absorbHit(s, nr, nc)) { blockedCount++; continue; }
                         s.board[nr][nc] = 0; s.stealths[nr][nc] = false; count++;
+                        clearInkAt(s, nr, nc);
                     }
                 }
                 s.mp[role] -= 5;
@@ -893,6 +923,7 @@ io.on('connection', (socket) => {
                 s.board[r][c] = 0;
                 s.stealths[r][c] = false;
                 s.shields[r][c] = false;
+                clearInkAt(s, r, c); // 棋子没了，墨染跟着失效
                 const gained = Math.min(MAX_MP, s.mp[role] + 2) - s.mp[role];
                 s.mp[role] += gained;
                 s.skillUsedThisTurn = true;
@@ -965,6 +996,13 @@ io.on('connection', (socket) => {
                         s.shields[tr][tc] = false;
                         s.board[nr][nc] = 0;
                         s.stealths[nr][nc] = false;
+
+                        // 墨染跟的是棋子，被震退了就跟着挪到新位置
+                        const movedInk = (s.inks || []).find((k) => k.r === nr && k.c === nc);
+                        if (movedInk) {
+                            movedInk.r = tr;
+                            movedInk.c = tc;
+                        }
                         pushed++;
                     }
                 }

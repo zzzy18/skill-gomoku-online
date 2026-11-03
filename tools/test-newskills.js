@@ -271,6 +271,66 @@ async function main() {
 
     f1.close(); f2.close();
 
+    // ══════ 5. 墨染随棋子失效 ══════
+    console.log('\n\x1b[1m5. 墨染：棋子被销毁后原地补子不该继承\x1b[0m');
+    const room5 = 'NQ' + Date.now().toString(36).slice(-4).toUpperCase();
+    const LOAD5 = ['ink', 'sacrifice', 'shield', 'sand', 'crater', 'meteor'];
+    const g1 = await joinReady(room5, LOAD5);
+    const g2 = await joinReady(room5, LOAD5);
+    const pg = { a: g1, b: g2 };
+
+    await place(pg, 1, 7, 7);
+    await place(pg, 2, 7, 8);
+    await place(pg, 1, 0, 0);   // 攒灵力
+    await place(pg, 2, 0, 1);
+
+    st = g1.state();
+    if (st.currentPlayer === 1 && st.mp[1] >= 3) {
+        g1.socket.emit('boardAction', { r: 7, c: 8, skill: 'ink' });
+        await sleep(380);
+        st = g1.state();
+        if ((st.inks || []).some((k) => k.r === 7 && k.c === 8)) ok('墨染已施加在 B 的棋子上');
+        else bad('墨染未施加');
+
+        await place(pg, 1, 0, 2);   // 结束回合
+
+        st = g1.state();
+        if (st.currentPlayer !== 2) {
+            bad(`轮次异常：${st.currentPlayer}`);
+        } else {
+            g2.socket.emit('boardAction', { r: 7, c: 8, skill: 'sacrifice' });
+            await sleep(380);
+            st = g1.state();
+
+            if (st.board[7][8] === 0) ok('棋子已被苦肉计销毁');
+            else bad(`棋子未销毁（${st.board[7][8]}）`);
+
+            if (!(st.inks || []).some((k) => k.r === 7 && k.c === 8)) {
+                ok('★ 棋子销毁后墨染标记同步清除');
+            } else {
+                bad('墨染标记残留在空格上（就是这次的 bug）');
+            }
+
+            // 原地补一枚新子
+            g2.socket.emit('boardAction', { r: 7, c: 8 });
+            await sleep(380);
+            st = g1.state();
+
+            if (st.board[7][8] === 2) ok('原地补子成功');
+            else bad(`补子失败（${st.board[7][8]}）`);
+
+            if (!(st.inks || []).some((k) => k.r === 7 && k.c === 8)) {
+                ok('★ 新棋子没有继承墨染');
+            } else {
+                bad('新棋子继承了墨染（bug 未修复）');
+            }
+        }
+    } else {
+        bad(`灵力不足（${st?.mp?.[1]}），跳过`);
+    }
+
+    g1.close(); g2.close();
+
     console.log('');
     console.log('─'.repeat(58));
     if (fail === 0) console.log(`\x1b[0;32m全部通过\x1b[0m  ${pass} 项`);

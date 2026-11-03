@@ -1738,6 +1738,17 @@ function isPortal(r, c) {
         (p.a.r === r && p.a.c === c) || (p.b.r === r && p.b.c === c));
 }
 
+/** 墨染绑的是棋子而不是格子：棋子被销毁/变色时清掉该位置的标记，
+ *  否则玩家在原地补一枚新子会白白继承墨毒 */
+function clearInkAt(r, c) {
+    inks = (inks || []).filter(k => !(k.r === r && k.c === c));
+}
+
+/** 兜底：坐标上已经没有棋子的墨染一律作废 */
+function pruneInks() {
+    inks = (inks || []).filter(k => board[k.r][k.c] !== 0);
+}
+
 // 护盾：只挡一次攻击，挡下后消耗（与服务端 absorbHit 保持一致）
 function absorbHit(r, c) {
     if (shields[r][c]) {
@@ -1774,6 +1785,9 @@ function handleLocalAction(r, c) {
             }
         }
 
+        // 墨染跟的是棋子：吹歪了就跟着走，吹散了才失效
+        const sandInkIdx = (inks || []).findIndex(k => k.r === r && k.c === c);
+
         board[r][c] = 0; stealths[r][c] = false;
         craters.push({ r, c, duration: 2, type: 'wind' });
         mp[currentPlayer] -= 2; skillUsedThisTurn = true; activeSkill = null;
@@ -1782,6 +1796,7 @@ function handleLocalAction(r, c) {
         if (emptyNeighbors.length > 0) {
             const target = emptyNeighbors[Math.floor(Math.random() * emptyNeighbors.length)];
             board[target.nr][target.nc] = enemy;
+            if (sandInkIdx >= 0) { inks[sandInkIdx].r = target.nr; inks[sandInkIdx].c = target.nc; }
             appendLogItem({ type: 'skill', text: `${pTag} 对 [${pos}] 发动【🌪️飞沙走石】，吹偏至 [${coordStr(target.nr, target.nc)}]，原位留风眼！` });
             drawBoard(); updateUI();
             if (checkWin(target.nr, target.nc, enemy)) {
@@ -1789,6 +1804,7 @@ function handleLocalAction(r, c) {
             }
             return setStatus('🌪️ 飞沙走石已将敌子吹歪，原地留下风眼禁区！请继续落子');
         } else {
+            if (sandInkIdx >= 0) inks.splice(sandInkIdx, 1); // 棋子被吹散，墨染作废
             drawBoard(); updateUI();
             return setStatus('🌪️ 周围无空位，敌子被直接吹散，原地留下风眼禁区！请继续落子');
         }
@@ -1818,6 +1834,7 @@ function handleLocalAction(r, c) {
         targets.sort(() => Math.random() - 0.5).slice(0, 2).forEach(col => {
             if (absorbHit(r, col)) { blocked++; return; }
             board[r][col] = 0; stealths[r][col] = false;
+            clearInkAt(r, col);
             washed++;
         });
         appendLogItem({ type: 'skill', text: `${pTag} 发动【🌊水淹七军】冲散了第 ${r+1} 行的 ${washed} 枚棋子${blocked ? '（' + blocked + ' 枚被护盾挡下）' : ''}！` });
@@ -1834,6 +1851,7 @@ function handleLocalAction(r, c) {
             return setStatus('🛡️ 护盾挡下了乾坤挪移！护盾已消耗，可继续落子');
         }
         board[r][c] = currentPlayer; stealths[r][c] = false;
+        clearInkAt(r, c); // 棋子易主，墨染失去意义
         appendLogItem({ type: 'skill', text: `${pTag} 发动【☯️乾坤挪移】策反了 [${pos}] 的敌子！` });
         mp[currentPlayer] -= 4; lastMove = { r, c, player: currentPlayer };
         playSound('skill'); drawBoard();
@@ -1847,6 +1865,7 @@ function handleLocalAction(r, c) {
             if (nr < 0 || nr >= SIZE || nc < 0 || nc >= SIZE || board[nr][nc] === 0) continue;
             if (absorbHit(nr, nc)) { blocked++; continue; }
             board[nr][nc] = 0; stealths[nr][nc] = false;
+            clearInkAt(nr, nc);
         }
         if (blocked) appendLogItem({ type: 'skill', text: `🛡️ ${pTag} 的【🌩️九天雷劫】有 ${blocked} 枚棋子被护盾挡下！` });
         mp[currentPlayer] -= 5; playSound('skill'); drawBoard();
@@ -1891,6 +1910,7 @@ function handleLocalAction(r, c) {
     if (activeSkill === 'sacrifice') {
         if (board[r][c] !== currentPlayer) return setStatus('❌ 请选择己方棋子销毁！');
         board[r][c] = 0; stealths[r][c] = false; shields[r][c] = false;
+        clearInkAt(r, c); // 棋子没了，墨染跟着失效
         const gained = Math.min(MAX_MP, mp[currentPlayer] + 2) - mp[currentPlayer];
         mp[currentPlayer] += gained;
         skillUsedThisTurn = true; activeSkill = null;
@@ -1950,6 +1970,10 @@ function handleLocalAction(r, c) {
                 stealths[tr][tc] = stealths[nr][nc];
                 shields[tr][tc] = false;
                 board[nr][nc] = 0; stealths[nr][nc] = false;
+
+                // 墨染跟的是棋子，被震退了就跟着挪
+                const movedInk = (inks || []).find(k => k.r === nr && k.c === nc);
+                if (movedInk) { movedInk.r = tr; movedInk.c = tc; }
                 pushed++;
             }
         }
@@ -2058,6 +2082,7 @@ function nextLocalTurn(gainMp) {
 
     // 墨染计时：到期时若目标仍是敌子，腐化为施法者颜色
     if (inks.length) {
+        pruneInks(); // 棋子已经不在的标记先清掉
         const keep = [];
         for (const ink of inks) {
             ink.turns--;
